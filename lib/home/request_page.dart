@@ -664,16 +664,15 @@ class _RequestPageState extends State<RequestPage>
             _infoText('Requested At', requestDate),
 
             if (showActions) ...[
-              // Check if this is the user's own request
+              // Check if this is the user's own request (as requester only)
               Builder(
                 builder: (context) {
                   final user = FirebaseAuth.instance.currentUser;
                   final requestUserId = request['userId'] as String?;
-                  final requestAdviserId = request['adviserId'] as String?;
+
+                  // Treat as own request only when the logged-in user is the requester
                   final isOwnRequest =
-                      user != null &&
-                      (requestUserId == user.uid ||
-                          requestAdviserId == user.uid);
+                      user != null && requestUserId == user.uid;
 
                   if (isOwnRequest) {
                     return Padding(
