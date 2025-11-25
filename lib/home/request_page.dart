@@ -155,17 +155,9 @@ class _RequestPageState extends State<RequestPage>
         _updateStudentRequest(requestId, updateData),
       ];
 
-      // Update equipment quantity_borrowed when approving or rejecting
+      // FIXED: Do NOT update quantity_borrowed when approving
+      // Quantity should only decrease when Lab In Charge clicks "Release" in the web interface
       if (status == 'approved') {
-        updates.add(
-          _updateEquipmentQuantityBorrowed(
-            request['itemId'],
-            request['categoryId'],
-            request['quantity'],
-            increment: true,
-          ),
-        );
-
         // Archive to history storage for association rule mining
         // Get full request data including updated status
         final fullRequestData = Map<String, dynamic>.from(request);
@@ -177,9 +169,8 @@ class _RequestPageState extends State<RequestPage>
           ),
         );
       } else if (status == 'rejected') {
-        // If request was previously approved and now rejected, decrement
-        // (This handles the case where a request might be rejected after approval)
-        // Note: We need to check the current status before updating
+        // If request was previously approved or released and now rejected, 
+        // we need to check if quantity was already decreased
         final requestSnapshot =
             await FirebaseDatabase.instance
                 .ref()
@@ -190,7 +181,10 @@ class _RequestPageState extends State<RequestPage>
         if (requestSnapshot.exists) {
           final requestData = requestSnapshot.value as Map<dynamic, dynamic>;
           final previousStatus = requestData['status'] as String?;
-          if (previousStatus == 'approved') {
+          
+          // Only decrement if the request was previously released
+          // (released is when quantity is actually decreased by Lab In Charge)
+          if (previousStatus == 'released') {
             updates.add(
               _updateEquipmentQuantityBorrowed(
                 request['itemId'],
