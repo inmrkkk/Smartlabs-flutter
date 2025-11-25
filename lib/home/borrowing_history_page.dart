@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:intl/intl.dart';
 import 'service/due_date_reminder_service.dart';
 import 'service/borrow_history_service.dart';
+import 'service/notification_service.dart';
 
 class BorrowingHistoryPage extends StatefulWidget {
   const BorrowingHistoryPage({super.key});
@@ -19,6 +22,8 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
   List<Map<String, dynamic>> _currentBorrows = [];
   List<Map<String, dynamic>> _returnedItems = [];
   late TabController _tabController;
+  Map<String, String> _requestStatuses = {};
+  final Set<String> _sentReminderKeys = <String>{};
 
   @override
   void initState() {
@@ -47,7 +52,7 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
         .onValue
         .listen((event) {
           if (mounted && event.snapshot.exists) {
-            _processSnapshot(event.snapshot);
+            unawaited(_processSnapshot(event.snapshot));
           }
         });
   }
@@ -76,7 +81,7 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
               .equalTo(user.uid)
               .get();
 
-      _processSnapshot(snapshot);
+      await _processSnapshot(snapshot);
 
       setState(() {
         _isLoading = false;
@@ -87,8 +92,10 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
     }
   }
 
-  void _processSnapshot(DataSnapshot snapshot) {
+  Future<void> _processSnapshot(DataSnapshot snapshot) async {
     List<Map<String, dynamic>> userRequests = [];
+    final List<Map<String, dynamic>> newlyApprovedRequests = [];
+    final List<Map<String, dynamic>> newlyReleasedRequests = [];
 
     if (snapshot.exists) {
       final data = snapshot.value as Map<dynamic, dynamic>;
@@ -98,6 +105,18 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
         // Ensure status field exists, default to pending if missing
         if (!request.containsKey('status') || request['status'] == null) {
           request['status'] = 'pending';
+        }
+
+        final requestId = key.toString();
+        final currentStatus = request['status']?.toString();
+        final previousStatus = _requestStatuses[requestId];
+        if ((previousStatus == null || previousStatus != 'approved') &&
+            currentStatus == 'approved') {
+          newlyApprovedRequests.add(request);
+        }
+        if ((previousStatus == null || previousStatus != 'released') &&
+            currentStatus == 'released') {
+          newlyReleasedRequests.add(request);
         }
         userRequests.add(request);
       });
@@ -128,7 +147,175 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
                         r['returnedAt'] != ''),
               )
               .toList();
+      _requestStatuses = {
+        for (final request in userRequests)
+          if (request['id'] != null)
+            request['id'].toString(): request['status']?.toString() ?? 'pending',
+      };
     });
+
+    await _notifyApprovedRequests(newlyApprovedRequests);
+    await _notifyReleasedRequests(newlyReleasedRequests);
+    await _notifyDueStatusReminders(_currentBorrows);
+  }
+
+  Future<void> _notifyDueStatusReminders(
+    List<Map<String, dynamic>> currentBorrows,
+  ) async {
+    if (currentBorrows.isEmpty) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final nowPhilippines = DateTime.now().toUtc().add(const Duration(hours: 8));
+    final reminderDateKey = DateFormat('yyyy-MM-dd').format(nowPhilippines);
+
+    for (final request in currentBorrows) {
+      if (request['status'] != 'released') continue;
+
+      final dateToReturnRaw = request['dateToReturn']?.toString();
+      if (dateToReturnRaw == null || dateToReturnRaw.isEmpty) continue;
+
+      final dueStatus = DueDateReminderService.getDueDateStatus(dateToReturnRaw);
+      if (dueStatus != 'due_today' && dueStatus != 'overdue') continue;
+
+      final requestId = request['id']?.toString();
+      if (requestId == null) continue;
+
+      DateTime? dueDatePhilippines;
+      try {
+        final parsedDate = DateTime.parse(dateToReturnRaw);
+        dueDatePhilippines = parsedDate.toUtc().add(const Duration(hours: 8));
+      } catch (_) {
+        continue;
+      }
+
+      final reminderKey = 'reminder_${requestId}_${dueStatus}_$reminderDateKey';
+      if (_sentReminderKeys.contains(reminderKey)) continue;
+      _sentReminderKeys.add(reminderKey);
+
+      final reminderRef = FirebaseDatabase.instance
+          .ref()
+          .child('reminders_sent')
+          .child(user.uid)
+          .child(reminderKey);
+
+      try {
+        final alreadySent = await reminderRef.get();
+        if (alreadySent.exists) continue;
+
+        final formattedDueDate =
+            DateFormat('MMM dd, yyyy').format(dueDatePhilippines);
+
+        await NotificationService.sendReminderNotification(
+          userId: user.uid,
+          itemName: request['itemName']?.toString() ?? 'Equipment',
+          dueDate: formattedDueDate,
+          reminderType: dueStatus!,
+        );
+
+        await reminderRef.set({
+          'requestId': requestId,
+          'itemName': request['itemName']?.toString() ?? 'Equipment',
+          'reminderType': dueStatus,
+          'source': 'borrowing_history_page',
+          'sentAt': DateTime.now().toIso8601String(),
+        });
+      } catch (e) {
+        debugPrint('Error sending due status reminder: $e');
+      }
+    }
+  }
+
+  Future<void> _notifyApprovedRequests(
+    List<Map<String, dynamic>> newlyApproved,
+  ) async {
+    if (newlyApproved.isEmpty) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    for (final request in newlyApproved) {
+      final requestId = request['id']?.toString();
+      if (requestId == null) continue;
+
+      final flagKey = 'status_${requestId}_approved';
+      final flagRef = FirebaseDatabase.instance
+          .ref()
+          .child('notification_flags')
+          .child(user.uid)
+          .child(flagKey);
+
+      try {
+        final alreadyFlagged = await flagRef.get();
+        if (alreadyFlagged.exists) continue;
+
+        await NotificationService.sendNotificationToUser(
+          userId: user.uid,
+          title: 'Request Approved',
+          message:
+              'Your request for ${request['itemName'] ?? 'equipment'} has been approved.',
+          type: 'success',
+          additionalData: {
+            'requestId': requestId,
+            'status': 'approved',
+            'itemName': request['itemName'] ?? 'equipment',
+          },
+        );
+
+        await flagRef.set({
+          'requestId': requestId,
+          'status': 'approved',
+          'sentAt': DateTime.now().toIso8601String(),
+        });
+      } catch (e) {
+        debugPrint('Error notifying approval: $e');
+      }
+    }
+  }
+
+  Future<void> _notifyReleasedRequests(
+    List<Map<String, dynamic>> newlyReleased,
+  ) async {
+    if (newlyReleased.isEmpty) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    for (final request in newlyReleased) {
+      final requestId = request['id']?.toString();
+      if (requestId == null) continue;
+
+      final flagKey = 'status_${requestId}_released';
+      final flagRef = FirebaseDatabase.instance
+          .ref()
+          .child('notification_flags')
+          .child(user.uid)
+          .child(flagKey);
+
+      try {
+        final alreadyFlagged = await flagRef.get();
+        if (alreadyFlagged.exists) continue;
+
+        await NotificationService.sendNotificationToUser(
+          userId: user.uid,
+          title: 'Item Released',
+          message:
+              'Your request for ${request['itemName'] ?? 'equipment'} has been released and is ready for pickup.',
+          type: 'success',
+          additionalData: {
+            'requestId': requestId,
+            'status': 'released',
+            'itemName': request['itemName'] ?? 'equipment',
+          },
+        );
+
+        await flagRef.set({
+          'requestId': requestId,
+          'status': 'released',
+          'sentAt': DateTime.now().toIso8601String(),
+        });
+      } catch (e) {
+        debugPrint('Error notifying release: $e');
+      }
+    }
   }
 
   Future<void> _markAsReturned(String requestId) async {

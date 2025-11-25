@@ -28,6 +28,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _currentIndex = 0; // Current tab index
   int _notificationCount = 0;
   Timer? _reminderTimer; // Timer for periodic reminder checks
+  StreamSubscription<Map<String, dynamic>>? _notificationSubscription;
 
   // List of page widgets
   late List<Widget> _pages;
@@ -52,11 +53,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _loadNotificationCount();
     _checkDueDateReminders();
     _startReminderTimer();
+    _listenToNotificationCount();
   }
 
   @override
   void dispose() {
     _reminderTimer?.cancel();
+    _notificationSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -171,6 +174,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('Error loading notification count: $e');
     }
+  }
+
+  void _listenToNotificationCount() {
+    _notificationSubscription?.cancel();
+    _notificationSubscription =
+        NotificationService.listenToNotifications().listen((notifications) {
+      final unreadCount = notifications.values.where((value) {
+        if (value is Map) {
+          final isRead = value['isRead'];
+          return isRead == null || isRead == false;
+        }
+        return false;
+      }).length;
+
+      if (mounted && unreadCount != _notificationCount) {
+        setState(() {
+          _notificationCount = unreadCount;
+        });
+      }
+    });
   }
 
   @override
