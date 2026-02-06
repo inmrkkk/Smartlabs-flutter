@@ -69,6 +69,8 @@ class RequestDetailsSection extends StatelessWidget {
   final List<Laboratory> laboratories;
   final bool isLoading;
   final Laboratory? selectedLaboratory;
+  final bool laboratoryEnabled;
+  final int? maxQuantity;
   final Function(Laboratory?) onLaboratoryChanged;
   final TextEditingController quantityController;
   final TextEditingController itemNoController;
@@ -78,6 +80,8 @@ class RequestDetailsSection extends StatelessWidget {
     required this.laboratories,
     required this.isLoading,
     required this.selectedLaboratory,
+    this.laboratoryEnabled = true,
+    this.maxQuantity,
     required this.onLaboratoryChanged,
     required this.quantityController,
     required this.itemNoController,
@@ -118,8 +122,12 @@ class RequestDetailsSection extends StatelessWidget {
                     if (value == null || value.isEmpty) {
                       return 'Required';
                     }
-                    if (int.tryParse(value) == null || int.parse(value) < 1) {
+                    final parsed = int.tryParse(value);
+                    if (parsed == null || parsed < 1) {
                       return 'Invalid';
+                    }
+                    if (maxQuantity != null && parsed > maxQuantity!) {
+                      return 'Max $maxQuantity';
                     }
                     return null;
                   },
@@ -218,7 +226,7 @@ class RequestDetailsSection extends StatelessWidget {
           child: Text(lab.labName),
         );
       }).toList(),
-      onChanged: onLaboratoryChanged,
+      onChanged: laboratoryEnabled ? onLaboratoryChanged : null,
       validator: (value) {
         if (value == null) {
           return 'Please select a laboratory';

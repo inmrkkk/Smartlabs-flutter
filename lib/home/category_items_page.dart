@@ -277,6 +277,10 @@ class _CategoryItemsPageState extends State<CategoryItemsPage> {
                                                   widget.category.title,
                                               itemId: item.id,
                                               categoryId: item.categoryId,
+                                              initialLabId: widget.category.labId,
+                                              initialLabRecordId: widget.category.labRecordId,
+                                              lockLaboratory: true,
+                                              maxQuantity: item.availableQuantity,
                                             ),
                                       ),
                                     );
@@ -374,6 +378,17 @@ class _CategoryItemsPageState extends State<CategoryItemsPage> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Please enter a valid quantity'),
+                      ),
+                    );
+                    return;
+                  }
+
+                  if (quantity > item.availableQuantity) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Only ${item.availableQuantity} available for ${item.name}',
+                        ),
                       ),
                     );
                     return;

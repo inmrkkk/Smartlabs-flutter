@@ -15,6 +15,10 @@ class BorrowFormPage extends StatefulWidget {
   final String categoryName;
   final String itemId;
   final String categoryId;
+  final String? initialLabId;
+  final String? initialLabRecordId;
+  final bool lockLaboratory;
+  final int? maxQuantity;
 
   const BorrowFormPage({
     super.key,
@@ -22,6 +26,10 @@ class BorrowFormPage extends StatefulWidget {
     required this.categoryName,
     required this.itemId,
     required this.categoryId,
+    this.initialLabId,
+    this.initialLabRecordId,
+    this.lockLaboratory = false,
+    this.maxQuantity,
   });
 
   @override
@@ -57,15 +65,26 @@ class _BorrowFormPageState extends State<BorrowFormPage>
     _loadUserRole();
     _teacherService.loadTeachers();
     _laboratoryService.loadLaboratories().then((_) {
-      // Set default laboratory to first available lab
-      if (_laboratoryService.laboratories.isNotEmpty &&
-          _selectedLaboratory == null) {
-        if (mounted) {
-          setState(() {
-            _selectedLaboratory = _laboratoryService.laboratories.first;
-          });
-        }
+      if (!mounted) return;
+
+      final String? preferredLabId = widget.initialLabId;
+      final String? preferredLabRecordId = widget.initialLabRecordId;
+
+      Laboratory? preferred;
+      if (preferredLabId != null && preferredLabId.isNotEmpty) {
+        preferred = _laboratoryService.getLaboratoryById(preferredLabId);
       }
+      preferred ??= (preferredLabRecordId != null && preferredLabRecordId.isNotEmpty)
+          ? _laboratoryService.getLaboratoryById(preferredLabRecordId)
+          : null;
+
+      setState(() {
+        _selectedLaboratory ??=
+            preferred ??
+            (_laboratoryService.laboratories.isNotEmpty
+                ? _laboratoryService.laboratories.first
+                : null);
+      });
     });
   }
 
@@ -261,6 +280,8 @@ class _BorrowFormPageState extends State<BorrowFormPage>
                         laboratories: _laboratoryService.laboratories,
                         isLoading: _laboratoryService.isLoading,
                         selectedLaboratory: _selectedLaboratory,
+                        laboratoryEnabled: !widget.lockLaboratory,
+                        maxQuantity: widget.maxQuantity,
                         onLaboratoryChanged: (lab) {
                           setState(() {
                             _selectedLaboratory = lab;
