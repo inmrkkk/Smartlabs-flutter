@@ -1074,7 +1074,7 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
                   children: [
                     _buildRequestsList(_allRequests, showReturnButton: false),
                     _buildRequestsList(_currentBorrows, showReturnButton: false),
-                    _buildRequestsList(_returnedItems, showReturnButton: false, showDeleteButton: true),
+                    _buildRequestsList(_returnedItems, showReturnButton: false, showDeleteButton: false),
                     _buildRequestsList(_rejectedItems, showReturnButton: false),
                   ],
                 ),
