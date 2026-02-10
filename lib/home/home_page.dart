@@ -470,71 +470,76 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ],
         ),
 
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
 
-        // Quick action grid - now with only the essential actions
+        // Quick action cards with consistent spacing
         _userRole == 'teacher'
             ? Row(
-              children: [
-                Expanded(
-                  child: _buildActionCard(
-                    title: 'Profile',
-                    icon: Icons.person,
-                    color: Colors.blue,
-                    onTap: () {
-                      setState(() => _currentIndex = 4); // Profile tab for teachers
-                    },
+                children: [
+                  Expanded(
+                    child: _buildActionCard(
+                      title: 'Profile',
+                      icon: Icons.person,
+                      color: const Color(0xFF3B82F6), // Consistent blue
+                      onTap: () {
+                        setState(() => _currentIndex = 4); // Profile tab for teachers
+                      },
+                    ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildActionCard(
-                    title: 'Equipment',
-                    icon: Icons.science,
-                    color: Colors.orange,
-                    onTap: () {
-                      setState(() => _currentIndex = 1);
-                    },
+                  const SizedBox(width: 16), // Consistent spacing
+                  Expanded(
+                    child: _buildActionCard(
+                      title: 'Equipment',
+                      icon: Icons.science,
+                      color: const Color(0xFFF97316), // Consistent orange
+                      onTap: () {
+                        setState(() => _currentIndex = 1);
+                      },
+                    ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildActionCard(
-                    title: 'Requests',
-                    icon: Icons.assignment,
-                    color: Colors.green,
-                    onTap: () {
-                      setState(() => _currentIndex = 2);
-                    },
+                  const SizedBox(width: 16), // Consistent spacing
+                  Expanded(
+                    child: _buildActionCard(
+                      title: 'Requests',
+                      icon: Icons.assignment,
+                      color: const Color(0xFF10B981), // Consistent green
+                      onTap: () {
+                        setState(() => _currentIndex = 2);
+                      },
+                    ),
                   ),
+                ],
+              )
+            : Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min, // Wrap content tightly
+                  children: [
+                    SizedBox(
+                      width: 160, // Fixed width for consistency
+                      child: _buildActionCard(
+                        title: 'Profile',
+                        icon: Icons.person,
+                        color: const Color(0xFF3B82F6), // Consistent blue
+                        onTap: () {
+                          setState(() => _currentIndex = 3); // Profile tab for students
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 16), // Consistent spacing
+                    SizedBox(
+                      width: 160, // Fixed width for consistency
+                      child: _buildActionCard(
+                        title: 'Equipment',
+                        icon: Icons.science,
+                        color: const Color(0xFFF97316), // Consistent orange
+                        onTap: () {
+                          setState(() => _currentIndex = 1);
+                        },
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            )
-            : Row(
-              children: [
-                Expanded(
-                  child: _buildActionCard(
-                    title: 'Profile',
-                    icon: Icons.person,
-                    color: Colors.blue,
-                    onTap: () {
-                      setState(() => _currentIndex = 3); // Profile tab for students
-                    },
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildActionCard(
-                    title: 'Equipment',
-                    icon: Icons.science,
-                    color: Colors.orange,
-                    onTap: () {
-                      setState(() => _currentIndex = 1);
-                    },
-                  ),
-                ),
-              ],
-            ),
+              ),
       ],
     );
   }
@@ -548,33 +553,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return GestureDetector(
       onTap: onTap,
       child: Container(
+        height: 120, // Fixed height for consistency
+        margin: const EdgeInsets.symmetric(horizontal: 4), // Equal horizontal spacing
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(16), // Consistent border radius
           boxShadow: [
             BoxShadow(
-              color: Colors.grey.shade100,
-              blurRadius: 6,
-              offset: const Offset(0, 2),
+              color: Colors.black.withValues(alpha: 0.08), // Subtle shadow
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+              spreadRadius: 0,
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04), // Additional subtle shadow
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+              spreadRadius: 0,
             ),
           ],
-          border: Border.all(color: Colors.grey.shade100),
+          border: Border.all(
+            color: Colors.grey.shade100,
+            width: 1,
+          ),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // Icon container with consistent sizing
             Container(
-              padding: const EdgeInsets.all(12),
+              width: 56, // Fixed width
+              height: 56, // Fixed height
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
+                color: color.withValues(alpha: 0.12), // Consistent background opacity
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: color, size: 28),
+              child: Center(
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 28, // Consistent icon size
+                ),
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 12), // Consistent spacing
+            // Text with consistent typography
             Text(
               title,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                letterSpacing: 0.2,
+                height: 1.2,
+              ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
