@@ -96,7 +96,7 @@ class NotificationService {
         message = 'You have successfully returned $itemName.';
         type = 'success';
         break;
-      default:
+      default:  
         title = 'Request Update';
         message = 'Your request for $itemName has been updated.';
         type = 'info';

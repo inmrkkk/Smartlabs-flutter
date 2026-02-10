@@ -26,6 +26,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _userName = 'User';
   String _userRole = '';
   int _currentIndex = 0; // Current tab index
+  int _historyInitialTabIndex = 0;
   int _notificationCount = 0;
   Timer? _reminderTimer; // Timer for periodic reminder checks
   StreamSubscription<Map<String, dynamic>>? _notificationSubscription;
@@ -100,7 +101,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _pages = [
         _buildHomeContent(),
         const EquipmentPage(),
-        const BorrowingHistoryPage(),
+        BorrowingHistoryPage(initialTabIndex: _historyInitialTabIndex),
         const ProfilePage(),
       ];
     } else if (_userRole == 'teacher') {
@@ -108,7 +109,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _pages = [
         _buildHomeContent(),
         const EquipmentPage(),
-        const BorrowingHistoryPage(),
+        BorrowingHistoryPage(initialTabIndex: _historyInitialTabIndex),
         const RequestPage(),
         const ProfilePage(),
       ];
@@ -251,7 +252,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ],
             ),
             onPressed: () {
-              showNotificationModal(context);
+              showNotificationModal(
+                context,
+                onNavigateToHistory: () {
+                  if (!mounted) return;
+                  setState(() {
+                    _historyInitialTabIndex = 1;
+                    _initPages();
+                    _currentIndex = 2;
+                  });
+                },
+              );
               // Refresh notification count after opening modal
               _loadNotificationCount();
               // Also check for new reminders
@@ -287,6 +298,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 currentIndex: _currentIndex,
                 onTap: (index) {
                   setState(() {
+                    if (index == 2) {
+                      _historyInitialTabIndex = 0;
+                      _initPages();
+                    }
                     _currentIndex = index;
                   });
                 },

@@ -11,6 +11,14 @@ class DueDateReminderService {
   // Philippine timezone is UTC+8
   static const int _philippineTimeOffset = 8;
 
+  static DateTime _parseToPhilippineTime(String raw) {
+    final parsed = DateTime.parse(raw);
+    if (parsed.isUtc) {
+      return parsed.add(Duration(hours: _philippineTimeOffset));
+    }
+    return parsed;
+  }
+
   /// Get current time in Philippine timezone
   static DateTime _getPhilippineTime() {
     final now = DateTime.now().toUtc();
@@ -50,9 +58,8 @@ class DueDateReminderService {
         if (dateToReturn == null || itemName == null) continue;
 
         try {
-          // Parse return date and convert to Philippine time
-          final returnDateUTC = DateTime.parse(dateToReturn);
-          final returnDatePH = returnDateUTC.add(Duration(hours: _philippineTimeOffset));
+          // Parse return date in Philippine time
+          final returnDatePH = _parseToPhilippineTime(dateToReturn);
           
           // Get start of day for comparison
           final nowStartOfDay = DateTime(nowPH.year, nowPH.month, nowPH.day);
@@ -174,17 +181,40 @@ class DueDateReminderService {
     if (dateToReturn == null) return null;
 
     try {
-      final returnDate = DateTime.parse(dateToReturn);
-      final now = DateTime.now();
-      final daysUntilDue = returnDate.difference(now).inDays;
+      final nowPH = _getPhilippineTime();
+
+      // Parse return date in Philippine time
+      final returnDatePH = _parseToPhilippineTime(dateToReturn);
+
+      // Compare based on date (start-of-day) to avoid time-of-day skew
+      final nowStartOfDay = DateTime(nowPH.year, nowPH.month, nowPH.day);
+      final returnStartOfDay =
+          DateTime(returnDatePH.year, returnDatePH.month, returnDatePH.day);
+      final daysUntilDue = returnStartOfDay.difference(nowStartOfDay).inDays;
 
       if (daysUntilDue < 0) {
         return 'overdue';
-      } else if (daysUntilDue == 0) {
+      }
+
+      if (daysUntilDue == 0) {
+        // Treat as overdue if already past lab closing time (5:00 PM PH)
+        final labClosingTime = DateTime(
+          returnDatePH.year,
+          returnDatePH.month,
+          returnDatePH.day,
+          17,
+          0,
+        );
+        if (nowPH.isAfter(labClosingTime)) {
+          return 'overdue';
+        }
         return 'due_today';
-      } else if (daysUntilDue <= 3) {
+      }
+
+      if (daysUntilDue <= 3) {
         return 'due_soon';
       }
+
       return null;
     } catch (e) {
       debugPrint('Error parsing due date: $e');
@@ -197,9 +227,14 @@ class DueDateReminderService {
     if (dateToReturn == null) return null;
 
     try {
-      final returnDate = DateTime.parse(dateToReturn);
-      final now = DateTime.now();
-      return returnDate.difference(now).inDays;
+      final nowPH = _getPhilippineTime();
+
+      final returnDatePH = _parseToPhilippineTime(dateToReturn);
+
+      final nowStartOfDay = DateTime(nowPH.year, nowPH.month, nowPH.day);
+      final returnStartOfDay =
+          DateTime(returnDatePH.year, returnDatePH.month, returnDatePH.day);
+      return returnStartOfDay.difference(nowStartOfDay).inDays;
     } catch (e) {
       debugPrint('Error calculating days until due: $e');
       return null;

@@ -136,11 +136,12 @@ class FormService {
       );
     } else {
       // For students: Send notification to instructor
+      final studentName = await _getUserName(user.uid) ?? user.email;
       tasks.add(
         NotificationService.sendNotificationToUser(
           userId: adviserId,
           title: 'New Borrow Request',
-          message: '${user.email} has requested to borrow ${widget.itemName}',
+          message: '$studentName has requested to borrow ${widget.itemName}',
           type: 'info',
           additionalData: {
             'requestId': requestId,

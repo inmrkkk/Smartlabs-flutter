@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'borrowing_history_page.dart';
 
 class NotificationModal extends StatefulWidget {
-  const NotificationModal({super.key});
+  final BuildContext parentContext;
+  final VoidCallback? onNavigateToHistory;
+
+  const NotificationModal({
+    super.key,
+    required this.parentContext,
+    this.onNavigateToHistory,
+  });
 
   @override
   State<NotificationModal> createState() => _NotificationModalState();
@@ -294,6 +302,22 @@ class _NotificationModalState extends State<NotificationModal> {
                               if (!notification.isRead) {
                                 _markAsRead(notification.id);
                               }
+
+                              Navigator.of(context).pop();
+
+                              final navigateToHistory =
+                                  widget.onNavigateToHistory;
+                              if (navigateToHistory != null) {
+                                navigateToHistory();
+                                return;
+                              }
+
+                              Navigator.of(widget.parentContext).push(
+                                MaterialPageRoute(
+                                  builder:
+                                      (_) => const BorrowingHistoryPage(),
+                                ),
+                              );
                             },
                             child: Container(
                               color:
@@ -495,11 +519,18 @@ class NotificationItem {
 enum NotificationType { success, error, warning, announcement, info }
 
 // Function to show the notification modal
-void showNotificationModal(BuildContext context) {
+void showNotificationModal(
+  BuildContext context, {
+  VoidCallback? onNavigateToHistory,
+}) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (context) => const NotificationModal(),
+    builder:
+        (sheetContext) => NotificationModal(
+          parentContext: context,
+          onNavigateToHistory: onNavigateToHistory,
+        ),
   );
 }

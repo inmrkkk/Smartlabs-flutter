@@ -242,12 +242,13 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
         );
       } else {
         // For students: Send notification to instructor about the batch request
+        final studentName = await _getUserName(user.uid) ?? user.email;
         requests.add(
           NotificationService.sendNotificationToUser(
             userId: _adviserId,
             title: 'New Batch Borrow Request',
             message:
-                '${user.email} has requested to borrow ${_cartService.itemCount} items',
+                '$studentName has requested to borrow ${_cartService.itemCount} items',
             type: 'info',
             additionalData: {
               'batchId': batchId,
@@ -318,17 +319,46 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
               color: Colors.white,
               size: 20,
             ),
-            const SizedBox(width: 8),
-            Expanded(child: Text(message)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
           ],
         ),
-        backgroundColor:
-            isError ? const Color(0xFFE74C3C) : const Color(0xFF27AE60),
+        backgroundColor: isError ? const Color(0xFFE74C3C) : const Color(0xFF27AE60),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
       ),
     );
+  }
+
+  /// Get user name from database
+  Future<String?> _getUserName(String userId) async {
+    try {
+      final snapshot =
+          await FirebaseDatabase.instance
+              .ref()
+              .child('users')
+              .child(userId)
+              .get();
+
+      if (snapshot.exists) {
+        final data = snapshot.value as Map<dynamic, dynamic>;
+        return data['name'] as String?;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error getting user name: $e');
+      return null;
+    }
   }
 
   @override

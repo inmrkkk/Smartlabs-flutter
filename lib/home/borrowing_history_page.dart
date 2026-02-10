@@ -9,7 +9,12 @@ import 'service/borrow_history_service.dart';
 import 'service/notification_service.dart';
 
 class BorrowingHistoryPage extends StatefulWidget {
-  const BorrowingHistoryPage({super.key});
+  final int initialTabIndex;
+
+  const BorrowingHistoryPage({
+    super.key,
+    this.initialTabIndex = 0,
+  });
 
   @override
   State<BorrowingHistoryPage> createState() => _BorrowingHistoryPageState();
@@ -29,7 +34,11 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(
+      length: 4,
+      vsync: this,
+      initialIndex: widget.initialTabIndex.clamp(0, 3),
+    );
     _loadBorrowingHistory();
     _setupRealtimeListener();
     _checkDueDateReminders();
@@ -42,6 +51,16 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
       await _loadBorrowingHistory();
       debugPrint('✅ FORCE SYNC COMPLETED');
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant BorrowingHistoryPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nextIndex = widget.initialTabIndex.clamp(0, 3);
+    if (nextIndex != oldWidget.initialTabIndex &&
+        _tabController.index != nextIndex) {
+      _tabController.animateTo(nextIndex);
+    }
   }
 
   Future<void> _checkDueDateReminders() async {
@@ -781,155 +800,6 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
     }
   }
 
-  Future<void> _markAsReturned(String requestId) async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      // Get request data to update equipment quantity
-      final requestSnapshot = await FirebaseDatabase.instance
-          .ref()
-          .child('borrow_requests')
-          .child(requestId)
-          .get();
-
-      if (!requestSnapshot.exists) {
-        _showSnackBar('Request not found', isError: true);
-        return;
-      }
-
-      final requestData = requestSnapshot.value as Map<dynamic, dynamic>;
-      final status = requestData['status'] as String?;
-
-      // Update request status
-      final updatedRequestData = Map<String, dynamic>.from(requestData);
-      updatedRequestData['returnedAt'] = DateTime.now().toIso8601String();
-      updatedRequestData['status'] = 'returned';
-
-      await FirebaseDatabase.instance
-          .ref()
-          .child('borrow_requests')
-          .child(requestId)
-          .update({
-            'returnedAt': updatedRequestData['returnedAt'],
-            'status': updatedRequestData['status'],
-          });
-
-      // Decrement quantity_borrowed if the request was approved/released
-      if (status == 'approved' || status == 'released') {
-        await _updateEquipmentQuantityBorrowed(
-          requestData['itemId'],
-          requestData['categoryId'],
-          requestData['quantity'],
-          increment: false,
-        );
-      }
-
-      // Archive to history storage for association rule mining
-      await BorrowHistoryService.archiveReturnedRequest(
-        requestId,
-        updatedRequestData,
-      );
-
-      _showSnackBar('Item marked as returned successfully!', isError: false);
-      _loadBorrowingHistory();
-    } catch (e) {
-      _showSnackBar('Error marking item as returned: $e', isError: true);
-    }
-  }
-
-  Future<void> _updateEquipmentQuantityBorrowed(
-    String itemId,
-    String categoryId,
-    Object? quantity, {
-    required bool increment,
-  }) async {
-    try {
-      final quantityValue = int.tryParse(quantity.toString()) ?? 1;
-      
-      // Get current equipment item
-      final itemSnapshot = await FirebaseDatabase.instance
-          .ref()
-          .child('equipment_categories')
-          .child(categoryId)
-          .child('equipments')
-          .child(itemId)
-          .get();
-
-      if (itemSnapshot.exists) {
-        final itemData = itemSnapshot.value as Map<dynamic, dynamic>;
-        final currentBorrowed =
-            int.tryParse(itemData['quantity_borrowed']?.toString() ?? '0') ?? 0;
-        
-        final newBorrowed = increment
-            ? currentBorrowed + quantityValue
-            : (currentBorrowed - quantityValue).clamp(0, double.infinity).toInt();
-
-        // Update quantity_borrowed
-        await FirebaseDatabase.instance
-            .ref()
-            .child('equipment_categories')
-            .child(categoryId)
-            .child('equipments')
-            .child(itemId)
-            .update({
-              'quantity_borrowed': newBorrowed,
-              'updatedAt': DateTime.now().toIso8601String(),
-            });
-
-        // Update category counts
-        await _updateCategoryCounts(categoryId);
-      }
-    } catch (e) {
-      debugPrint('Error updating equipment quantity_borrowed: $e');
-    }
-  }
-
-  Future<void> _updateCategoryCounts(String categoryId) async {
-    try {
-      final snapshot = await FirebaseDatabase.instance
-          .ref()
-          .child('equipment_categories')
-          .child(categoryId)
-          .child('equipments')
-          .get();
-
-      int totalCount = 0;
-      int availableCount = 0;
-
-      if (snapshot.exists) {
-        final data = snapshot.value as Map<dynamic, dynamic>;
-
-        for (var itemData in data.values) {
-          final item = itemData as Map<dynamic, dynamic>;
-          final quantity =
-              int.tryParse(item['quantity']?.toString() ?? '0') ?? 0;
-          final quantityBorrowed =
-              int.tryParse(item['quantity_borrowed']?.toString() ?? '0') ?? 0;
-
-          totalCount += quantity;
-
-          if (item['status']?.toString().toLowerCase() == 'available') {
-            final available = (quantity - quantityBorrowed).clamp(0, quantity);
-            availableCount += available;
-          }
-        }
-      }
-
-      await FirebaseDatabase.instance
-          .ref()
-          .child('equipment_categories')
-          .child(categoryId)
-          .update({
-            'totalCount': totalCount,
-            'availableCount': availableCount,
-            'updatedAt': DateTime.now().toIso8601String(),
-          });
-    } catch (e) {
-      debugPrint('Error updating category counts: $e');
-    }
-  }
-
   void _showSnackBar(String message, {required bool isError}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1073,7 +943,7 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
                   controller: _tabController,
                   children: [
                     _buildRequestsList(_allRequests, showReturnButton: false),
-                    _buildRequestsList(_currentBorrows, showReturnButton: false),
+                    _buildRequestsList(_currentBorrows, showReturnButton: true),
                     _buildRequestsList(_returnedItems, showReturnButton: false, showDeleteButton: false),
                     _buildRequestsList(_rejectedItems, showReturnButton: false),
                   ],
@@ -1193,6 +1063,16 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
     IconData statusIcon;
     String statusText;
 
+    final dateToReturnRaw = request['dateToReturn']?.toString();
+    final dueDateStatus =
+        dateToReturnRaw != null && dateToReturnRaw.isNotEmpty
+            ? DueDateReminderService.getDueDateStatus(dateToReturnRaw)
+            : null;
+    final isActiveReleased =
+        status == 'released' && (returnedAt == null || returnedAt.isEmpty);
+    final isOverdue = isActiveReleased && dueDateStatus == 'overdue';
+    final isDueToday = isActiveReleased && dueDateStatus == 'due_today';
+
     // Use displayStatus instead of original status
     switch (displayStatus) {
       case 'approved':
@@ -1253,29 +1133,97 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
                     ),
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(statusIcon, size: 16, color: statusColor),
-                      const SizedBox(width: 4),
-                      Text(
-                        statusText.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: statusColor,
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(statusIcon, size: 16, color: statusColor),
+                          const SizedBox(width: 4),
+                          Text(
+                            statusText.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: statusColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (isOverdue)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE74C3C).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.warning,
+                              size: 16,
+                              color: Color(0xFFE74C3C),
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              'OVERDUE',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFE74C3C),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                    if (isDueToday)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF39C12).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.schedule,
+                              size: 16,
+                              color: Color(0xFFF39C12),
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              'DUE TODAY',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFF39C12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),
@@ -1298,27 +1246,6 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
             _infoText('Usage Period', '$dateToBeUsed → $dateToReturn'),
             _infoText('Requested At', requestDate),
             if (returnedDate != null) _infoText('Returned At', returnedDate),
-
-            if (showReturnButton &&
-                (status == 'approved' || status == 'released')) ...[
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => _markAsReturned(request['id']),
-                  icon: const Icon(Icons.assignment_turned_in, size: 18),
-                  label: const Text('Mark as Returned'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF3498DB),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-              ),
-            ],
 
             if (showDeleteButton) ...[
               const SizedBox(height: 20),

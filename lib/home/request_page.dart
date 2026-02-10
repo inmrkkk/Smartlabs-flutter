@@ -165,6 +165,8 @@ class _RequestPageState extends State<RequestPage>
         'status': status,
         'processedAt': DateTime.now().toIso8601String(),
         'processedBy': user.uid,
+        if (status == 'returned')
+          'returnedAt': DateTime.now().toIso8601String(),
       };
 
       final List<Future> updates = [
@@ -193,7 +195,7 @@ class _RequestPageState extends State<RequestPage>
         // When admin marks as returned, archive to history and update quantity
         final fullRequestData = Map<String, dynamic>.from(request);
         fullRequestData.addAll(updateData);
-        fullRequestData['returnedAt'] = DateTime.now().toIso8601String();
+        fullRequestData['returnedAt'] = updateData['returnedAt'];
         
         updates.add(
           BorrowHistoryService.archiveReturnedRequest(
