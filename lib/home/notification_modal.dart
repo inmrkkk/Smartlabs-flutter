@@ -107,8 +107,51 @@ class _NotificationModalState extends State<NotificationModal> {
       } else {
         debugPrint('No system notifications found');
       }
+
+      // Load announcements and convert them to notifications
+      await _loadAnnouncementNotifications(notifications);
     } catch (e) {
       debugPrint('Error loading system notifications: $e');
+    }
+  }
+
+  Future<void> _loadAnnouncementNotifications(
+    List<NotificationItem> notifications,
+  ) async {
+    try {
+      final snapshot =
+          await FirebaseDatabase.instance
+              .ref()
+              .child('announcements')
+              .get();
+
+      if (snapshot.exists) {
+        final data = snapshot.value as Map<dynamic, dynamic>;
+        debugPrint('Found ${data.length} announcements to convert to notifications');
+        data.forEach((key, value) {
+          if (value is Map<dynamic, dynamic>) {
+            final announcementData = value;
+            // Convert announcement to notification
+            final notification = NotificationItem(
+              id: 'announcement_$key',
+              title: announcementData['title'] ?? 'New Announcement',
+              message: announcementData['content'] ?? '',
+              timestamp: announcementData['createdAt'] != null
+                  ? DateTime.parse(announcementData['createdAt'])
+                  : DateTime.now(),
+              type: NotificationType.announcement,
+              isRead: false, // Announcements should always appear as unread initially
+            );
+            notifications.add(notification);
+          } else {
+            debugPrint('Skipping invalid announcement data: key=$key, value=$value (${value.runtimeType})');
+          }
+        });
+      } else {
+        debugPrint('No announcements found');
+      }
+    } catch (e) {
+      debugPrint('Error loading announcement notifications: $e');
     }
   }
 
@@ -195,6 +238,156 @@ class _NotificationModalState extends State<NotificationModal> {
       } catch (e) {
         debugPrint('Error clearing notifications: $e');
       }
+    }
+  }
+
+  void _navigateToAnnouncement(NotificationItem notification) async {
+    try {
+      // Extract the announcement ID from the notification ID
+      final announcementId = notification.id.replaceFirst('announcement_', '');
+      
+      // Fetch the full announcement data
+      final snapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('announcements')
+          .child(announcementId)
+          .get();
+
+      if (snapshot.exists && snapshot.value is Map) {
+        final announcementData = snapshot.value as Map<dynamic, dynamic>;
+        final announcement = {
+          'id': announcementId,
+          'title': announcementData['title'] ?? '',
+          'content': announcementData['content'] ?? '',
+          'author': announcementData['author'] ?? '',
+          'category': announcementData['category'] ?? '',
+          'createdAt': announcementData['createdAt'] ?? '',
+          'updatedAt': announcementData['updatedAt'] ?? '',
+        };
+
+        // Show the announcement detail dialog
+        _showAnnouncementDetailDialog(announcement);
+      } else {
+        // Fallback: show a simple dialog with notification content
+        _showAnnouncementDetailDialog({
+          'id': announcementId,
+          'title': notification.title,
+          'content': notification.message,
+          'author': 'System',
+          'category': 'info',
+          'createdAt': notification.timestamp.toIso8601String(),
+          'updatedAt': notification.timestamp.toIso8601String(),
+        });
+      }
+    } catch (e) {
+      debugPrint('Error navigating to announcement: $e');
+      // Fallback: show a simple dialog with notification content
+      _showAnnouncementDetailDialog({
+        'id': notification.id,
+        'title': notification.title,
+        'content': notification.message,
+        'author': 'System',
+        'category': 'info',
+        'createdAt': notification.timestamp.toIso8601String(),
+        'updatedAt': notification.timestamp.toIso8601String(),
+      });
+    }
+  }
+
+  void _showAnnouncementDetailDialog(Map<String, dynamic> announcement) {
+    showDialog(
+      context: widget.parentContext,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            announcement['title'] as String,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (announcement['category'].toString().isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _getCategoryColor(
+                        announcement['category'] as String,
+                      ).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      announcement['category'] as String,
+                      style: TextStyle(
+                        color: _getCategoryColor(
+                          announcement['category'] as String,
+                        ),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                Text(
+                  announcement['content'] as String,
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'By ${announcement['author']} • ${_formatTime(announcement['createdAt'] as String)}',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _formatTime(String dateTimeString) {
+    try {
+      final dateTime = DateTime.parse(dateTimeString);
+      final now = DateTime.now();
+      final difference = now.difference(dateTime);
+
+      if (difference.inDays > 0) {
+        return '${difference.inDays}d ago';
+      } else if (difference.inHours > 0) {
+        return '${difference.inHours}h ago';
+      } else if (difference.inMinutes > 0) {
+        return '${difference.inMinutes}m ago';
+      } else {
+        return 'Just now';
+      }
+    } catch (e) {
+      return 'Unknown';
+    }
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category.toLowerCase()) {
+      case 'urgent':
+        return Colors.red;
+      case 'important':
+        return Colors.orange;
+      case 'info':
+        return Colors.blue;
+      case 'update':
+        return Colors.purple;
+      default:
+        return const Color(0xFF2AA39F); // Default app color
     }
   }
 
@@ -322,6 +515,13 @@ class _NotificationModalState extends State<NotificationModal> {
                               }
 
                               Navigator.of(context).pop();
+
+                              // Check if this is an announcement notification
+                              if (notification.type == NotificationType.announcement) {
+                                // Navigate to announcement card/detail
+                                _navigateToAnnouncement(notification);
+                                return;
+                              }
 
                               // Check if this is a student request notification (single or batch)
                               if (notification.type == NotificationType.info && 
