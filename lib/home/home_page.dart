@@ -482,7 +482,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     icon: Icons.person,
                     color: Colors.blue,
                     onTap: () {
-                      setState(() => _currentIndex = 3);
+                      setState(() => _currentIndex = 4); // Profile tab for teachers
                     },
                   ),
                 ),
@@ -518,7 +518,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     icon: Icons.person,
                     color: Colors.blue,
                     onTap: () {
-                      setState(() => _currentIndex = 2);
+                      setState(() => _currentIndex = 3); // Profile tab for students
                     },
                   ),
                 ),
