@@ -178,14 +178,11 @@ class _CartPageState extends State<CartPage> {
                               onPressed: () => Navigator.pop(context),
                               child: const Text('Cancel'),
                             ),
-                            ElevatedButton(
+                            TextButton(
                               onPressed: () {
                                 _cartService.clear();
                                 Navigator.pop(context);
                               },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                              ),
                               child: const Text('Clear All'),
                             ),
                           ],

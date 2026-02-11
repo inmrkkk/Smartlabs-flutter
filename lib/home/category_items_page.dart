@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:app/home/models/equipment_models.dart';
 import 'package:app/home/service/equipment_service.dart';
 import 'package:app/home/service/cart_service.dart';
-import 'package:app/home/cart_page.dart';
 import 'package:app/home/form_page.dart';
 
 class CategoryItemsPage extends StatefulWidget {
@@ -402,23 +401,6 @@ class _CategoryItemsPageState extends State<CategoryItemsPage> {
                       itemName: item.name,
                       categoryName: widget.category.title,
                       quantity: quantity,
-                    ),
-                  );
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('$quantity x ${item.name} added to cart'),
-                      duration: const Duration(milliseconds: 1500),
-                      action: SnackBarAction(
-                        label: 'View Cart',
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const CartPage(),
-                            ),
-                          );
-                        },
-                      ),
                     ),
                   );
                 },
