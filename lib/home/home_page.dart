@@ -4,6 +4,7 @@ import 'package:app/home/notification_modal.dart';
 import 'package:app/home/service/notification_service.dart';
 import 'package:app/home/service/due_date_reminder_service.dart';
 import 'package:app/services/notification_manager.dart';
+import 'package:app/services/restriction_service.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -31,6 +32,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _notificationCount = 0;
   Timer? _reminderTimer; // Timer for periodic reminder checks
   StreamSubscription<Map<String, dynamic>>? _notificationSubscription;
+  StreamSubscription<Map<String, dynamic>>? _restrictionSubscription;
+
+  // Restriction related state
+  bool _isRestricted = false;
+  Map<String, dynamic>? _restrictionData;
+  bool _hasShownLoginRestrictionModal = false;
 
   // List of page widgets
   late List<Widget> _pages;
@@ -56,12 +63,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _checkDueDateReminders();
     _startReminderTimer();
     _listenToNotificationCount();
+    _checkUserRestriction();
+    _listenToRestrictionChanges();
   }
 
   @override
   void dispose() {
     _reminderTimer?.cancel();
     _notificationSubscription?.cancel();
+    _restrictionSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -216,6 +226,100 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
+  /// Check user restriction status on load
+  Future<void> _checkUserRestriction() async {
+    try {
+      final result = await RestrictionService().checkUserRestriction();
+      if (mounted) {
+        setState(() {
+          _isRestricted = result['isRestricted'] as bool;
+          _restrictionData = result['restrictionData'] as Map<String, dynamic>?;
+        });
+        
+        // Show login restriction modal if restricted and not shown yet
+        if (_isRestricted && !_hasShownLoginRestrictionModal) {
+          _hasShownLoginRestrictionModal = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _showRestrictionModal();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking user restriction: $e');
+    }
+  }
+
+  /// Listen to restriction changes in real-time
+  void _listenToRestrictionChanges() {
+    _restrictionSubscription?.cancel();
+    _restrictionSubscription = RestrictionService()
+        .watchRestrictionStatus()
+        .listen((result) {
+      if (mounted) {
+        setState(() {
+          _isRestricted = result['isRestricted'] as bool;
+          _restrictionData = result['restrictionData'] as Map<String, dynamic>?;
+        });
+      }
+    });
+  }
+
+  /// Show restriction modal dialog
+  void _showRestrictionModal() {
+    if (!mounted || _restrictionData == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.red.shade600, size: 28),
+              const SizedBox(width: 12),
+              const Text('Account Restricted'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Your account is currently restricted due to unresolved damaged or lost equipment.',
+                style: TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              if (_restrictionData!['restrictionReason'] != null) ...[
+                Text(
+                  'Reason: ${_restrictionData!['restrictionReason']}',
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (_restrictionData!['restrictedAt'] != null) ...[
+                Text(
+                  'Restricted on: ${RestrictionService.formatRestrictionDate(_restrictionData!['restrictedAt'])}',
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 8),
+              ],
+              const Text(
+                'Please settle your pending records to restore borrowing access.',
+                style: TextStyle(fontWeight: FontWeight.w500, color: Colors.red),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('I Understand'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -357,11 +461,87 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
               const SizedBox(height: 20),
 
-              // Quick Actions section - now with more space
+              // Restriction banner (shown if user is restricted) - moved under Quick Actions
+              if (_isRestricted) _buildRestrictionBanner(),
+
+              // Quick Actions section
               _buildQuickActionsSection(),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // Restriction banner widget
+  Widget _buildRestrictionBanner() {
+    if (_restrictionData == null) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade200, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.red.shade100.withValues(alpha: 0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.red.shade600, size: 24),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Your account is currently restricted.',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_restrictionData!['restrictionReason'] != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _restrictionData!['restrictionReason'],
+              style: TextStyle(
+                color: Colors.red.shade700,
+                fontSize: 14,
+              ),
+            ),
+          ],
+          if (_restrictionData!['restrictedAt'] != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Restricted on: ${RestrictionService.formatRestrictionDate(_restrictionData!['restrictedAt'])}',
+              style: TextStyle(
+                color: Colors.red.shade600,
+                fontSize: 12,
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            'Please settle your pending damaged/lost item records.',
+            style: TextStyle(
+              color: Colors.red.shade800,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }

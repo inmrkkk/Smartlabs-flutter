@@ -2,6 +2,7 @@
 import 'package:app/home/service/form_service.dart';
 import 'package:app/home/service/teacher_service.dart';
 import 'package:app/home/service/laboratory_service.dart';
+import 'package:app/services/restriction_service.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -189,13 +190,41 @@ class _BorrowFormPageState extends State<BorrowFormPage>
       return;
     }
 
-    // Show signature dialog first
-    final String? signature = await _showSignatureDialog();
-
-    if (signature == null) {
-      // User cancelled or cleared the signature
+    // Security check: Verify user is not restricted before submitting
+    final canBorrow = await RestrictionService().canUserBorrow();
+    if (!canBorrow) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: true,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.red.shade600, size: 28),
+                  const SizedBox(width: 12),
+                  const Text('Account Restricted'),
+                ],
+              ),
+              content: const Text(
+                'Your account is currently restricted due to unresolved damaged or lost equipment. Please settle your pending records to restore borrowing access.',
+                style: TextStyle(fontSize: 16),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('I Understand'),
+                ),
+              ],
+            );
+          },
+        );
+      }
       return;
     }
+
+    final signature = await _showSignatureDialog();
+    if (signature == null) return;
 
     setState(() {
       _isSubmitting = true;
