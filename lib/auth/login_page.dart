@@ -220,7 +220,7 @@ class _LoginPageState extends State<LoginPage> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const Text('👋', style: TextStyle(fontSize: 24)),
+                        const Text('', style: TextStyle(fontSize: 24)),
                       ],
                     ),
                     const SizedBox(height: 30),
