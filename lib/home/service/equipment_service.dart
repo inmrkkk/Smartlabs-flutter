@@ -374,6 +374,32 @@ class EquipmentService {
     }).toList();
   }
 
+  static Future<String?> getEquipmentNameByItemId(String itemId) async {
+    try {
+      final snapshot = await _database.ref().child('equipment_categories').get();
+      if (!snapshot.exists) return null;
+
+      final data = snapshot.value as Map<dynamic, dynamic>;
+      for (final categoryEntry in data.entries) {
+        final categoryData = categoryEntry.value;
+        if (categoryData is! Map) continue;
+        final equipments = categoryData['equipments'];
+        if (equipments is! Map) continue;
+        final itemData = equipments[itemId];
+        if (itemData is Map) {
+          final name = itemData['name']?.toString().trim();
+          if (name != null && name.isNotEmpty) return name;
+          return null;
+        }
+      }
+
+      return null;
+    } catch (e) {
+      debugPrint('Error resolving equipment name for $itemId: $e');
+      return null;
+    }
+  }
+
   // Get categories for a specific lab (by labRecordId)
   static Future<List<EquipmentCategory>> getCategoriesByLabRecordId(
     String labRecordId,

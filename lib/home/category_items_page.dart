@@ -3,7 +3,6 @@ import 'package:app/home/models/equipment_models.dart';
 import 'package:app/home/service/equipment_service.dart';
 import 'package:app/home/service/cart_service.dart';
 import 'package:app/home/form_page.dart';
-import 'package:app/services/restriction_service.dart';
 
 class CategoryItemsPage extends StatefulWidget {
   final EquipmentCategory category;
@@ -20,17 +19,12 @@ class _CategoryItemsPageState extends State<CategoryItemsPage> {
   List<EquipmentItem> _items = [];
   List<EquipmentItem> _filteredItems = [];
   final TextEditingController _searchController = TextEditingController();
-  
-  // Restriction related state
-  bool _isRestricted = false;
-  Map<String, dynamic>? _restrictionData;
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_applySearchFilter);
     _loadItems();
-    _checkUserRestriction();
   }
 
   @override
@@ -255,54 +249,19 @@ class _CategoryItemsPageState extends State<CategoryItemsPage> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          // Action buttons with restriction protection
                           Column(
                             children: [
-                              if (_isRestricted) ...[
-                                // Restricted user message
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.shade50,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: Colors.red.shade200),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.warning_amber_rounded, 
-                                           color: Colors.red.shade600, size: 20),
-                                      const SizedBox(width: 8),
-                                      const Expanded(
-                                        child: Text(
-                                          'Restricted Account – Borrowing Disabled',
-                                          style: TextStyle(
-                                            color: Colors.red,
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                              ],
                               Row(
                                 children: [
                                   Expanded(
                                     child: OutlinedButton.icon(
-                                      onPressed: _isRestricted ? null : () => _showQuantityDialog(item),
+                                      onPressed: () => _showQuantityDialog(item),
                                       icon: const Icon(Icons.add_shopping_cart),
                                       label: const Text('Add to Request'),
                                       style: OutlinedButton.styleFrom(
-                                        foregroundColor: _isRestricted 
-                                            ? Colors.grey 
-                                            : const Color(0xFF2AA39F),
-                                        side: BorderSide(
-                                          color: _isRestricted 
-                                              ? Colors.grey 
-                                              : const Color(0xFF2AA39F),
+                                        foregroundColor: const Color(0xFF2AA39F),
+                                        side: const BorderSide(
+                                          color: Color(0xFF2AA39F),
                                           width: 2,
                                         ),
                                         padding: const EdgeInsets.symmetric(
@@ -314,37 +273,33 @@ class _CategoryItemsPageState extends State<CategoryItemsPage> {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: ElevatedButton.icon(
-                                      onPressed: _isRestricted 
-                                          ? () => _showRestrictionModal()
-                                          : () async {
-                                              final result = await Navigator.push(
-                                                context,
-                                                MaterialPageRoute(
-                                                  builder:
-                                                      (context) => BorrowFormPage(
-                                                        itemName: item.name,
-                                                        categoryName:
-                                                            widget.category.title,
-                                                        itemId: item.id,
-                                                        categoryId: item.categoryId,
-                                                        initialLabId: widget.category.labId,
-                                                        initialLabRecordId: widget.category.labRecordId,
-                                                        lockLaboratory: true,
-                                                        maxQuantity: item.availableQuantity,
-                                                      ),
+                                      onPressed: () async {
+                                        final result = await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder:
+                                                (context) => BorrowFormPage(
+                                                  itemName: item.name,
+                                                  categoryName:
+                                                      widget.category.title,
+                                                  itemId: item.id,
+                                                  categoryId: item.categoryId,
+                                                  initialLabId: widget.category.labId,
+                                                  initialLabRecordId: widget.category.labRecordId,
+                                                  lockLaboratory: true,
+                                                  maxQuantity: item.availableQuantity,
                                                 ),
-                                              );
+                                          ),
+                                        );
 
-                                              if (result == true) {
-                                                _loadItems(); // Refresh list
-                                              }
-                                            },
+                                        if (result == true) {
+                                          _loadItems();
+                                        }
+                                      },
                                       icon: const Icon(Icons.shopping_bag),
                                       label: const Text('Borrow Now'),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: _isRestricted 
-                                            ? Colors.grey 
-                                            : const Color(0xFF52B788),
+                                        backgroundColor: const Color(0xFF52B788),
                                         foregroundColor: Colors.white,
                                         padding: const EdgeInsets.symmetric(
                                           vertical: 12,
@@ -380,55 +335,7 @@ class _CategoryItemsPageState extends State<CategoryItemsPage> {
     }).toList();
   }
 
-  /// Check user restriction status
-  Future<void> _checkUserRestriction() async {
-    try {
-      final result = await RestrictionService().checkUserRestriction();
-      if (mounted) {
-        setState(() {
-          _isRestricted = result['isRestricted'] as bool;
-          _restrictionData = result['restrictionData'] as Map<String, dynamic>?;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error checking user restriction: $e');
-    }
-  }
-
-  /// Show restriction modal when user tries to borrow
-  void _showRestrictionModal() {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.red.shade600, size: 28),
-              const SizedBox(width: 12),
-              const Text('Account Restricted'),
-            ],
-          ),
-          content: const Text(
-            'Your account is currently restricted due to unresolved damaged or lost equipment. Please settle your pending records to restore borrowing access.',
-            style: TextStyle(fontSize: 16),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('I Understand'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   void _showQuantityDialog(EquipmentItem item) {
-    if (_isRestricted) {
-      _showRestrictionModal();
-      return;
-    }
     final quantityController = TextEditingController(text: '1');
 
     showDialog(
