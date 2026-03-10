@@ -335,6 +335,15 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
         final existing = uniqueRequests[requestId]!;
         final existingStatus = existing['status']?.toString() ?? '';
         final newStatus = request['status']?.toString() ?? '';
+
+        // Always preserve rejected status if any source reports rejected
+        if (newStatus == 'rejected' && existingStatus != 'rejected') {
+          uniqueRequests[requestId] = request;
+          continue;
+        }
+        if (existingStatus == 'rejected' && newStatus != 'rejected') {
+          continue;
+        }
         
         // Prefer the entry with more recent status information
         // History entries (borrow_history) are preferred for returned items
@@ -343,8 +352,11 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
           uniqueRequests[requestId] = request;
         } else if (existing['dataSource'] == 'borrow_history' && existingStatus == 'returned') {
           // Keep existing history entry
-        } else if (request['dataSource'] == 'borrow_requests' && 
-                   (newStatus == 'pending' || newStatus == 'approved' || newStatus == 'released')) {
+        } else if (request['dataSource'] == 'borrow_requests' &&
+                   (newStatus == 'pending' ||
+                    newStatus == 'approved' ||
+                    newStatus == 'released' ||
+                    newStatus == 'rejected')) {
           uniqueRequests[requestId] = request;
         }
       } else {
@@ -459,18 +471,18 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
           final dataSource = r['dataSource']?.toString();
           final returnedAt = r['returnedAt']?.toString();
           
-          // AGGRESSIVE: Include if ANY of these conditions are true
-          final isReturned = (status == 'returned') ||                           // Status is returned
-                            (returnedAt != null && returnedAt != '') ||           // Has returnedAt timestamp
-                            (dataSource == 'borrow_history' && status != 'pending' && status != 'rejected'); // History items that aren't pending/rejected
+          // Accurate: only show items that are truly returned.
+          // Do NOT infer returned based on returnedAt/history source because that can misclassify
+          // rejected/unreleased requests.
+          final shouldIncludeInReturned = status == 'returned';
           
           debugPrint('🔍 CHECKING: $itemName');
           debugPrint('   Status: "$status"');
           debugPrint('   DataSource: "$dataSource"');
           debugPrint('   ReturnedAt: "$returnedAt"');
-          debugPrint('   Is returned (aggressive): $isReturned');
+          debugPrint('   Include in returned (safe): $shouldIncludeInReturned');
           
-          if (isReturned) {
+          if (shouldIncludeInReturned) {
             _returnedItems.add(r);
             debugPrint('   ✅ INCLUDED in RETURNED');
           } else {
@@ -1022,6 +1034,11 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
 
     final status = request['status']?.toString() ?? 'pending';
     final returnedAt = request['returnedAt']?.toString();
+    final rejectionRemarksRaw = request['rejectionRemarks']?.toString();
+    final rejectionRemarks =
+        (rejectionRemarksRaw != null && rejectionRemarksRaw.trim().isNotEmpty)
+            ? rejectionRemarksRaw.trim()
+            : null;
     
     // Check if this item is in the RETURNED tab and force status to "Returned"
     final isInReturnedTab = _returnedItems.contains(request);
@@ -1245,7 +1262,46 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
             _infoText('Quantity', quantity),
             _infoText('Usage Period', '$dateToBeUsed → $dateToReturn'),
             _infoText('Requested At', requestDate),
-            if (returnedDate != null) _infoText('Returned At', returnedDate),
+            if (returnedDate != null && displayStatus == 'returned')
+              _infoText('Returned At', returnedDate),
+
+            if (displayStatus == 'rejected' && rejectionRemarks != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE74C3C).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFFE74C3C).withValues(alpha: 0.25),
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Rejection Remarks',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: Color(0xFFE74C3C),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      rejectionRemarks,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.35,
+                        color: Color(0xFF2C3E50),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             if (showDeleteButton) ...[
               const SizedBox(height: 20),

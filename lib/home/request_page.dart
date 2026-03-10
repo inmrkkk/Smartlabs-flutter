@@ -153,7 +153,7 @@ class _RequestPageState extends State<RequestPage>
       if (requestUserId == user.uid) {
         if (status == 'approved') {
           _showSnackBar(
-            'You cannot approve your own borrow request. Please contact another instructor to approve it.',
+            'You cannot approve your own borrow request. Please contact another faculty to approve it.',
             isError: true,
           );
           return;
@@ -161,12 +161,15 @@ class _RequestPageState extends State<RequestPage>
         // Allow rejection of own request (in case of cancellation)
       }
 
+      final nowPhilippines = DateTime.now().toUtc().add(const Duration(hours: 8));
+
       final updateData = {
         'status': status,
         'processedAt': DateTime.now().toIso8601String(),
         'processedBy': user.uid,
         if (status == 'returned')
-          'returnedAt': DateTime.now().toIso8601String(),
+          'returnedAt': nowPhilippines.toIso8601String(),
+        if (status == 'rejected') 'returnedAt': null,
       };
 
       final List<Future> updates = [
@@ -259,21 +262,32 @@ class _RequestPageState extends State<RequestPage>
       await Future.wait(updates);
 
       // Send notification to student about status change
-      await NotificationService.notifyRequestStatusChange(
-        userId: request['userId'],
-        itemName: request['itemName'],
-        status: status,
-        reason:
-            status == 'rejected'
-                ? 'Please contact your instructor for more details'
-                : null,
-      );
+      if (status == 'rejected') {
+        final itemName = request['itemName']?.toString() ?? 'Equipment';
+        final laboratory = request['laboratory']?.toString() ?? 'the laboratory';
+        await NotificationService.sendNotificationToUser(
+          userId: request['userId'],
+          title: 'Borrow Request Rejected',
+          message:
+              'Your request to borrow "$itemName" from the $laboratory was rejected by the Laboratory In-Charge.\n\nClick to view details.',
+          type: 'error',
+          additionalData: {
+            'action': 'borrow_request_details',
+            'requestId': requestId,
+            'status': 'rejected',
+          },
+        );
+      } else {
+        await NotificationService.notifyRequestStatusChange(
+          userId: request['userId'],
+          itemName: request['itemName'],
+          status: status,
+          reason: null,
+        );
+      }
 
-      _showSnackBar(
-        'Request ${status.toUpperCase()} successfully!',
-        isError: false,
-      );
-      _loadAdviserRequestsOnly();
+      _showSnackBar('Request updated successfully!', isError: false);
+      await _loadAdviserRequestsOnly();
     } catch (e) {
       _showSnackBar('Error updating request: $e', isError: true);
     }
@@ -746,7 +760,7 @@ class _RequestPageState extends State<RequestPage>
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'This is your own request. Please contact another instructor to approve it.',
+                                'This is your own request. Please contact another faculty to approve it.',
                                 style: TextStyle(
                                   color: Colors.orange.shade700,
                                   fontSize: 13,

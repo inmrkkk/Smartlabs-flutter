@@ -516,6 +516,27 @@ class _NotificationModalState extends State<NotificationModal> {
 
                               Navigator.of(context).pop();
 
+                              if (notification.action ==
+                                      'borrow_request_details' &&
+                                  notification.requestId != null &&
+                                  notification.requestId!.isNotEmpty) {
+                                Navigator.of(widget.parentContext).push(
+                                  MaterialPageRoute(
+                                    settings: RouteSettings(
+                                      arguments: {
+                                        'requestId': notification.requestId,
+                                        'status': notification.status,
+                                      },
+                                    ),
+                                    builder:
+                                        (_) => const BorrowingHistoryPage(
+                                          initialTabIndex: 2,
+                                        ),
+                                  ),
+                                );
+                                return;
+                              }
+
                               // Check if this is an announcement notification
                               if (notification.type == NotificationType.announcement) {
                                 // Navigate to announcement card/detail
@@ -674,6 +695,9 @@ class NotificationItem {
   final DateTime timestamp;
   final NotificationType type;
   bool isRead;
+  final String? action;
+  final String? requestId;
+  final String? status;
 
   NotificationItem({
     required this.id,
@@ -682,6 +706,9 @@ class NotificationItem {
     required this.timestamp,
     required this.type,
     required this.isRead,
+    this.action,
+    this.requestId,
+    this.status,
   });
 
   IconData get icon {
@@ -725,6 +752,9 @@ class NotificationItem {
               : DateTime.now(),
       type: _parseNotificationType(data['type'] ?? 'info'),
       isRead: data['isRead'] ?? false,
+      action: data['action']?.toString(),
+      requestId: data['requestId']?.toString(),
+      status: data['status']?.toString(),
     );
   }
 

@@ -66,7 +66,7 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
           // For teachers, set themselves as adviser
           if (_userRole == 'teacher') {
             _adviserId = user.uid;
-            _adviserName = data['name'] ?? user.email ?? 'Instructor';
+            _adviserName = data['name'] ?? user.email ?? 'Faculty';
           }
         });
       }
@@ -112,7 +112,7 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
 
     // For students, adviser is required; for teachers, they are auto-assigned
     if (_userRole != 'teacher' && (_adviserName.isEmpty || _adviserId.isEmpty)) {
-      _showSnackBar('Please select an instructor', isError: true);
+      _showSnackBar('Please select a faculty', isError: true);
       return;
     }
 
@@ -136,10 +136,10 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
                 .get();
             if (snapshot.exists) {
               final data = snapshot.value as Map<dynamic, dynamic>;
-              _adviserName = data['name'] ?? user.email ?? 'Instructor';
+              _adviserName = data['name'] ?? user.email ?? 'Faculty';
             }
           } catch (e) {
-            _adviserName = user.email ?? 'Instructor';
+            _adviserName = user.email ?? 'Faculty';
           }
         }
       }
@@ -241,7 +241,7 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
           ),
         );
       } else {
-        // For students: Send notification to instructor about the batch request
+        // For students: Send notification to faculty about the batch request
         final studentName = await _getUserName(user.uid) ?? user.email;
         requests.add(
           NotificationService.sendNotificationToUser(
@@ -390,7 +390,7 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
               _buildScheduleSection(),
               const SizedBox(height: 24),
 
-              // Instructor Section (only for students)
+              // Faculty Section (only for students)
               if (_userRole != 'teacher')
                 _buildAdviserSection(),
               if (_userRole != 'teacher')
@@ -684,7 +684,7 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Select Instructor',
+            'Select Faculty',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 12),
@@ -707,7 +707,7 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
               return DropdownButtonFormField<String>(
                 value: _adviserName.isEmpty ? null : _adviserName,
                 decoration: InputDecoration(
-                  hintText: 'Choose your instructor',
+                  hintText: 'Choose your faculty',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -734,7 +734,7 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
                 },
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please select an instructor';
+                    return 'Please select a faculty';
                   }
                   return null;
                 },

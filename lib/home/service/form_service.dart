@@ -60,12 +60,12 @@ class FormService {
       // For teachers, use their own ID as adviser and auto-approve
       adviserId = user.uid;
       adviserNameFinal =
-          await _getUserName(user.uid) ?? user.email ?? 'Instructor';
+          await _getUserName(user.uid) ?? user.email ?? 'Faculty';
     } else {
       // For students, find the selected adviser
       adviserId = await _findAdviserIdByName(adviserName);
       if (adviserId == null) {
-        throw Exception('Instructor not found');
+        throw Exception('Faculty not found');
       }
       adviserNameFinal = adviserName;
     }

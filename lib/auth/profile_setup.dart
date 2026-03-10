@@ -149,7 +149,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
 
               // Teacher option card
               _buildRoleCard(
-                title: 'Instructor',
+                title: 'Faculty',
                 description: 'Create courses and manage student progress',
                 icon: Icons.psychology,
                 isSelected: _selectedRole == 'teacher',

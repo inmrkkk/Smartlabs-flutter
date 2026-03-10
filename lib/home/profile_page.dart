@@ -115,7 +115,7 @@ class _ProfilePageState extends State<ProfilePage> {
               child: Text(
                 _userRole.isNotEmpty
                     ? _userRole == 'teacher'
-                        ? 'Instructor'
+                        ? 'Faculty'
                         : _userRole[0].toUpperCase() + _userRole.substring(1)
                     : "Role not set",
                 style: const TextStyle(
