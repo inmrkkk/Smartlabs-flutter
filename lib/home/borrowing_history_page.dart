@@ -915,6 +915,72 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
 
       final now = DateTime.now().toIso8601String();
 
+      // If this is a rejected request, make sure a history copy exists before archiving.
+      // This mirrors the web behavior: delete removes it from current requests but preserves it in history.
+      try {
+        final requestSnap = await FirebaseDatabase.instance
+            .ref()
+            .child('borrow_requests')
+            .child(requestId)
+            .get();
+        if (requestSnap.exists && requestSnap.value is Map) {
+          final requestData = Map<String, dynamic>.from(requestSnap.value as Map);
+          final requestStatus = requestData['status']?.toString();
+          if (requestStatus == 'rejected') {
+            final historyRef = FirebaseDatabase.instance.ref().child('borrow_history');
+            final rejectedHistoryKey = 'rejected_$requestId';
+            final existingHistory = await historyRef.child(rejectedHistoryKey).get();
+            if (!existingHistory.exists) {
+              await BorrowHistoryService.archiveRejectedRequest(
+                rejectedHistoryKey,
+                requestData,
+              );
+            }
+
+            // If the web admin wrote remarks into `/history/<pushId>`, copy them into our `borrow_history` record
+            // so the mobile UI can still show remarks even after the original request is removed.
+            try {
+              final webHistorySnap = await FirebaseDatabase.instance.ref().child('history').get();
+              if (webHistorySnap.exists && webHistorySnap.value is Map) {
+                final webHistoryData = Map<dynamic, dynamic>.from(webHistorySnap.value as Map);
+
+                Map<dynamic, dynamic>? matched;
+                for (final entry in webHistoryData.entries) {
+                  if (entry.value is! Map) continue;
+                  final row = Map<dynamic, dynamic>.from(entry.value as Map);
+                  final rowRequestId = row['requestId']?.toString();
+                  final rowOriginalRequestId = row['originalRequestId']?.toString();
+                  if (rowRequestId == requestId || rowOriginalRequestId == requestId) {
+                    matched = row;
+                    break;
+                  }
+                }
+
+                if (matched != null) {
+                  final remarks = (matched['rejectionRemarks'] ??
+                          matched['remarks'] ??
+                          matched['rejectRemarks'] ??
+                          matched['rejectedRemarks'] ??
+                          matched['rejectReason'] ??
+                          matched['reason'])
+                      ?.toString();
+
+                  if (remarks != null && remarks.trim().isNotEmpty) {
+                    await historyRef.child(rejectedHistoryKey).update({
+                      'rejectionRemarks': remarks.trim(),
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              debugPrint('❌ Error copying web history remarks: $e');
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('❌ Error ensuring rejected request is archived before delete: $e');
+      }
+
       // Soft-delete (archive) instead of permanently deleting.
       // This preserves historical records for analytics/auditing.
       final archiveData = <String, dynamic>{
@@ -1177,14 +1243,15 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
 
     final status = request['status']?.toString() ?? 'pending';
     final returnedAt = request['returnedAt']?.toString();
-    final processedByRole = request['processedByRole']?.toString().toLowerCase();
-    final isAdminRejection = processedByRole == 'admin';
-    final remarksRaw =
-        (request['rejectionRemarks'] ?? request['remarks'])?.toString();
+    final remarksRaw = (request['rejectionRemarks'] ??
+            request['remarks'] ??
+            request['rejectRemarks'] ??
+            request['rejectedRemarks'] ??
+            request['rejectReason'] ??
+            request['reason'])
+        ?.toString();
     final rejectionRemarks =
-        (isAdminRejection && remarksRaw != null && remarksRaw.trim().isNotEmpty)
-            ? remarksRaw.trim()
-            : null;
+        (remarksRaw != null && remarksRaw.trim().isNotEmpty) ? remarksRaw.trim() : null;
     
     // Check if this item is in the RETURNED tab and force status to "Returned"
     final isInReturnedTab = _returnedItems.contains(request);
