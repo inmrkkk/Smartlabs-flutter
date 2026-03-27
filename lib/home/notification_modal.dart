@@ -6,12 +6,14 @@ import 'borrowing_history_page.dart';
 class NotificationModal extends StatefulWidget {
   final BuildContext parentContext;
   final VoidCallback? onNavigateToHistory;
+  final ValueChanged<int>? onNavigateToHistoryTab;
   final VoidCallback? onNavigateToRequests;
 
   const NotificationModal({
     super.key,
     required this.parentContext,
     this.onNavigateToHistory,
+    this.onNavigateToHistoryTab,
     this.onNavigateToRequests,
   });
 
@@ -520,6 +522,13 @@ class _NotificationModalState extends State<NotificationModal> {
                                       'borrow_request_details' &&
                                   notification.requestId != null &&
                                   notification.requestId!.isNotEmpty) {
+                                final navigateToHistoryTab =
+                                    widget.onNavigateToHistoryTab;
+                                if (navigateToHistoryTab != null) {
+                                  navigateToHistoryTab(2);
+                                  return;
+                                }
+
                                 Navigator.of(widget.parentContext).push(
                                   MaterialPageRoute(
                                     settings: RouteSettings(
@@ -782,6 +791,7 @@ enum NotificationType { success, error, warning, announcement, info }
 void showNotificationModal(
   BuildContext context, {
   VoidCallback? onNavigateToHistory,
+  ValueChanged<int>? onNavigateToHistoryTab,
   VoidCallback? onNavigateToRequests,
 }) {
   showModalBottomSheet(
@@ -792,6 +802,7 @@ void showNotificationModal(
         (sheetContext) => NotificationModal(
           parentContext: context,
           onNavigateToHistory: onNavigateToHistory,
+          onNavigateToHistoryTab: onNavigateToHistoryTab,
           onNavigateToRequests: onNavigateToRequests,
         ),
   );

@@ -1,11 +1,21 @@
 import 'package:app/home/home_page.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 
 class ProfileSetupPage extends StatefulWidget {
-  final String userId;
+  final String? userId;
+  final String? pendingName;
+  final String? pendingEmail;
+  final String? pendingPassword;
 
-  const ProfileSetupPage({super.key, required this.userId});
+  const ProfileSetupPage({
+    super.key,
+    this.userId,
+    this.pendingName,
+    this.pendingEmail,
+    this.pendingPassword,
+  });
 
   @override
   State<ProfileSetupPage> createState() => _ProfileSetupPageState();
@@ -55,18 +65,45 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     setState(() => _isLoading = true);
 
     try {
-      // Prepare user data
-      final userData = {'role': _selectedRole, 'profile_setup': true};
+      String uid;
 
-      // Add course info for students
+      // If userId is provided, user already exists (legacy flow)
+      if (widget.userId != null && widget.userId!.isNotEmpty) {
+        uid = widget.userId!;
+      } else {
+        final pendingEmail = widget.pendingEmail?.trim() ?? '';
+        final pendingPassword = widget.pendingPassword ?? '';
+        final pendingName = widget.pendingName?.trim() ?? '';
+
+        if (pendingEmail.isEmpty || pendingPassword.isEmpty || pendingName.isEmpty) {
+          throw StateError('Missing registration details. Please register again.');
+        }
+
+        // Create Firebase Auth user only AFTER role/student details are provided
+        final userCredential = await FirebaseAuth.instance
+            .createUserWithEmailAndPassword(
+              email: pendingEmail,
+              password: pendingPassword,
+            );
+        uid = userCredential.user!.uid;
+
+        final baseUserData = {
+          'email': pendingEmail,
+          'name': pendingName,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        };
+        await _database.child('users').child(uid).update(baseUserData);
+      }
+
+      // Prepare and write profile data
+      final userData = {'role': _selectedRole, 'profile_setup': true};
       if (_selectedRole == 'student') {
         userData['course'] = _selectedCourse;
         userData['yearLevel'] = _selectedYearLevel;
         userData['section'] = _selectedSection;
       }
 
-      // Update user data with role and mark profile setup as complete
-      await _database.child('users').child(widget.userId).update(userData);
+      await _database.child('users').child(uid).update(userData);
 
       _showSnackBar("Profile setup complete!");
 

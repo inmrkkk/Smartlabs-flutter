@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
 import 'profile_setup.dart';
 
@@ -17,16 +15,6 @@ class _RegisterPageState extends State<RegisterPage> {
   final _nameController = TextEditingController();
   bool _obscurePassword = true;
   bool _isLoading = false;
-  late DatabaseReference _database;
-
-  @override
-  void initState() {
-    super.initState();
-    // Configure Firebase
-    FirebaseDatabase.instance.databaseURL =
-        'https://smartlab-e2107-default-rtdb.asia-southeast1.firebasedatabase.app';
-    _database = FirebaseDatabase.instance.ref();
-  }
 
   @override
   void dispose() {
@@ -37,67 +25,29 @@ class _RegisterPageState extends State<RegisterPage> {
     super.dispose();
   }
 
-  // Show a snackbar message
-  void _showSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
   // Validate and handle registration
   Future<void> _register() async {
-    // Form validation
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
-      // Create Firebase Auth user
-      final userCredential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-            email: _emailController.text.trim(),
-            password: _passwordController.text.trim(),
-          );
+      final name = _nameController.text.trim();
+      final email = _emailController.text.trim();
+      final password = _passwordController.text.trim();
 
-      final uid = userCredential.user!.uid;
-      final userData = {
-        'email': _emailController.text.trim(),
-        'name': _nameController.text.trim(),
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-        'profile_setup': false, // Flag to track if profile setup is complete
-      };
-
-      // Store in Realtime Database
-      await _database.child('users').child(uid).update(userData);
-
-      _showSnackBar("Registration successful!");
-
-      // Navigate to profile setup page instead of popping back
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfileSetupPage(userId: uid),
-          ),
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      final errorMessages = {
-        'weak-password': "The password provided is too weak",
-        'email-already-in-use': "The email is already in use",
-        'invalid-email': "Invalid email format",
-        'operation-not-allowed': "Email/password accounts are not enabled",
-        'network-request-failed': "Network error. Check your connection",
-      };
-
-      _showSnackBar(errorMessages[e.code] ?? "Registration failed");
-      debugPrint("Firebase Auth Error: ${e.code} - ${e.message}");
-    } on TimeoutException {
-      _showSnackBar("Connection timeout. Please try again.");
-    } catch (e) {
-      _showSnackBar("Registration Failed: $e");
-      debugPrint("General error during registration: $e");
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => ProfileSetupPage(
+                pendingName: name,
+                pendingEmail: email,
+                pendingPassword: password,
+              ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

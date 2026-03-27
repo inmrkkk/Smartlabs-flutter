@@ -31,6 +31,22 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
   Map<String, String> _requestStatuses = {};
   final Set<String> _sentReminderKeys = <String>{};
 
+  DateTime _parseRequestSortDate(Map<String, dynamic> request) {
+    final candidates = <String?>[
+      request['requestedAt']?.toString(),
+      request['archivedAt']?.toString(),
+      request['processedAt']?.toString(),
+      request['returnedAt']?.toString(),
+    ];
+
+    for (final raw in candidates) {
+      if (raw == null || raw.isEmpty) continue;
+      final parsed = DateTime.tryParse(raw);
+      if (parsed != null) return parsed;
+    }
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -46,11 +62,70 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
     // Force immediate sync to ensure returned items have correct status
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       debugPrint('🔄 FORCE SYNC ON PAGE LOAD');
+      await _repairHistoryEntries();
       await _syncReturnedRequestsToHistory();
       // Reload after sync to get updated data
       await _loadBorrowingHistory();
       debugPrint('✅ FORCE SYNC COMPLETED');
     });
+  }
+
+  Future<void> _repairHistoryEntries() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final borrowRequestsSnapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('borrow_requests')
+          .orderByChild('userId')
+          .equalTo(user.uid)
+          .get();
+
+      if (!borrowRequestsSnapshot.exists) return;
+
+      final data = borrowRequestsSnapshot.value as Map<dynamic, dynamic>;
+      final List<Future<void>> repairs = [];
+
+      for (final entry in data.entries) {
+        final requestId = entry.key.toString();
+        final requestData = entry.value as Map<dynamic, dynamic>;
+        final status = requestData['status']?.toString();
+        if (status != 'rejected') continue;
+
+        final historyRef = FirebaseDatabase.instance.ref().child('borrow_history');
+        final historySnapshot = await historyRef.child(requestId).get();
+        final rejectedHistorySnapshot =
+            await historyRef.child('rejected_$requestId').get();
+
+        DataSnapshot? targetSnapshot;
+        String? targetKey;
+
+        if (rejectedHistorySnapshot.exists) {
+          targetSnapshot = rejectedHistorySnapshot;
+          targetKey = 'rejected_$requestId';
+        } else if (historySnapshot.exists) {
+          targetSnapshot = historySnapshot;
+          targetKey = requestId;
+        }
+
+        if (targetSnapshot == null || targetKey == null) continue;
+
+        final historyData = targetSnapshot.value as Map<dynamic, dynamic>;
+        final historyStatus = historyData['status']?.toString();
+        if (historyStatus == 'rejected') continue;
+
+        repairs.add(
+          historyRef.child(targetKey).update({'status': 'rejected', 'returnedAt': null}),
+        );
+      }
+
+      if (repairs.isNotEmpty) {
+        await Future.wait(repairs);
+      }
+    } catch (e) {
+      debugPrint('❌ Error repairing history entries: $e');
+    }
   }
 
   @override
@@ -123,7 +198,19 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
               .child('borrow_history')
               .get();
 
-      await _processSnapshots(borrowRequestsSnapshot, borrowHistorySnapshot, user.uid);
+      // Web admin archives deleted rejected requests under `history/<pushId>`
+      final rejectedHistorySnapshot =
+          await FirebaseDatabase.instance
+              .ref()
+              .child('history')
+              .get();
+
+      await _processSnapshots(
+        borrowRequestsSnapshot,
+        borrowHistorySnapshot,
+        rejectedHistorySnapshot,
+        user.uid,
+      );
 
       setState(() {
         _isLoading = false;
@@ -185,11 +272,10 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
         
         debugPrint('🔍 CHECKING REQUEST: $requestId - Status: $status - ReturnedAt: $returnedAt');
         
-        // AGGRESSIVE: Include if returned OR has returnedAt OR is in history but should be returned
-        final needsSync = (status == 'returned') || 
-                         (returnedAt != null && returnedAt != '') ||
-                         (status == 'approved' && returnedAt != null && returnedAt != '') ||
-                         (status == 'released' && returnedAt != null && returnedAt != '');
+        // Safe: only sync if the request is truly returned.
+        // Do NOT infer returned based on returnedAt, otherwise rejected/unreleased requests
+        // can be incorrectly forced to 'returned' in history.
+        final needsSync = status == 'returned' && returnedAt != null && returnedAt != '';
         
         debugPrint('   Needs sync: $needsSync (status=$status, returnedAt=$returnedAt)');
         
@@ -231,7 +317,7 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
             
             final updateData = Map<String, dynamic>.from(requestData);
             updateData['archivedAt'] = DateTime.now().toIso8601String();
-            // ALWAYS FORCE the status to be 'returned' and ensure returnedAt is set
+            // Ensure the status remains 'returned' and returnedAt is set
             updateData['status'] = 'returned';
             updateData['returnedAt'] = returnedAt;
             
@@ -271,6 +357,7 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
   Future<void> _processSnapshots(
     DataSnapshot userRequestsSnapshot,
     DataSnapshot borrowHistorySnapshot,
+    DataSnapshot rejectedHistorySnapshot,
     String userId,
   ) async {
     List<Map<String, dynamic>> allUserRequests = [];
@@ -311,8 +398,16 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
       data.forEach((key, value) {
         final request = Map<String, dynamic>.from(value);
         // Filter by userId only (like student UI)
-        if (request['userId'] == userId) {
-          request['id'] = key;
+        final historyUserId = request['userId']?.toString();
+        if (historyUserId == userId) {
+          request['historyNodeKey'] = key.toString();
+          final originalRequestId = request['originalRequestId']?.toString();
+          final requestIdFromWeb = request['requestId']?.toString();
+          request['id'] = (originalRequestId != null && originalRequestId.isNotEmpty)
+              ? originalRequestId
+              : (requestIdFromWeb != null && requestIdFromWeb.isNotEmpty)
+                  ? requestIdFromWeb
+                  : key;
           request['dataSource'] = 'borrow_history';
           request['requestType'] = 'own'; // Mark as own request
           // Ensure status field exists
@@ -324,43 +419,90 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
       });
     }
 
-    // Remove duplicates - prefer history entries over current requests for returned items
+    // Process web-admin rejected history (`history/<pushId>`) - treat as history source
+    if (rejectedHistorySnapshot.exists) {
+      final data = rejectedHistorySnapshot.value as Map<dynamic, dynamic>;
+      data.forEach((key, value) {
+        final request = Map<String, dynamic>.from(value);
+        final historyUserId = request['userId']?.toString();
+        if (historyUserId == userId) {
+          request['historyNodeKey'] = key.toString();
+          final originalRequestId = request['originalRequestId']?.toString();
+          final requestIdFromWeb = request['requestId']?.toString();
+          request['id'] = (originalRequestId != null && originalRequestId.isNotEmpty)
+              ? originalRequestId
+              : (requestIdFromWeb != null && requestIdFromWeb.isNotEmpty)
+                  ? requestIdFromWeb
+                  : key;
+          request['dataSource'] = 'borrow_history';
+          request['requestType'] = 'own';
+          if (!request.containsKey('status') || request['status'] == null) {
+            request['status'] = 'rejected';
+          }
+          allUserRequests.add(request);
+        }
+      });
+    }
+
+    // Remove duplicates - normalize by logical request id.
+    // Prefer history entries over current requests for terminal statuses (returned/rejected)
+    // so deletion from borrow_requests doesn't make items disappear.
     final Map<String, Map<String, dynamic>> uniqueRequests = {};
     for (var request in allUserRequests) {
-      final requestId = request['id']?.toString() ?? '';
-      if (requestId.isEmpty) continue;
+      final logicalRequestId = request['id']?.toString() ?? '';
+      if (logicalRequestId.isEmpty) continue;
+
+      // Dedupe key strategy:
+      // - For live requests (borrow_requests): use the logical request id
+      // - For history (borrow_history): keep each history row distinct using its node key
+      //   to avoid collapsing multiple rejected records that share the same requestId.
+      final dataSource = request['dataSource']?.toString() ?? '';
+      final historyNodeKey = request['historyNodeKey']?.toString();
+      final dedupeKey = (dataSource == 'borrow_history' && historyNodeKey != null && historyNodeKey.isNotEmpty)
+          ? 'h:$historyNodeKey'
+          : logicalRequestId;
       
       // If this request already exists, decide which one to keep
-      if (uniqueRequests.containsKey(requestId)) {
-        final existing = uniqueRequests[requestId]!;
+      if (uniqueRequests.containsKey(dedupeKey)) {
+        final existing = uniqueRequests[dedupeKey]!;
         final existingStatus = existing['status']?.toString() ?? '';
         final newStatus = request['status']?.toString() ?? '';
+        final existingSource = existing['dataSource']?.toString() ?? '';
+        final newSource = request['dataSource']?.toString() ?? '';
 
-        // Always preserve rejected status if any source reports rejected
-        if (newStatus == 'rejected' && existingStatus != 'rejected') {
-          uniqueRequests[requestId] = request;
-          continue;
-        }
-        if (existingStatus == 'rejected' && newStatus != 'rejected') {
-          continue;
+        // Always preserve rejected status, preferring history when available
+        if (newStatus == 'rejected' || existingStatus == 'rejected') {
+          if (existingStatus != 'rejected' && newStatus == 'rejected') {
+            uniqueRequests[dedupeKey] = request;
+            continue;
+          }
+          if (existingStatus == 'rejected' && newStatus != 'rejected') {
+            continue;
+          }
+          if (existingStatus == 'rejected' && newStatus == 'rejected') {
+            if (existingSource != 'borrow_history' && newSource == 'borrow_history') {
+              uniqueRequests[dedupeKey] = request;
+            }
+            continue;
+          }
         }
         
         // Prefer the entry with more recent status information
-        // History entries (borrow_history) are preferred for returned items
+        // History entries (borrow_history) are preferred for terminal items
         // Current requests (borrow_requests) are preferred for active items
-        if (request['dataSource'] == 'borrow_history' && newStatus == 'returned') {
-          uniqueRequests[requestId] = request;
-        } else if (existing['dataSource'] == 'borrow_history' && existingStatus == 'returned') {
+        if (newSource == 'borrow_history' && (newStatus == 'returned' || newStatus == 'rejected')) {
+          uniqueRequests[dedupeKey] = request;
+        } else if (existingSource == 'borrow_history' && (existingStatus == 'returned' || existingStatus == 'rejected')) {
           // Keep existing history entry
-        } else if (request['dataSource'] == 'borrow_requests' &&
+        } else if (newSource == 'borrow_requests' &&
                    (newStatus == 'pending' ||
                     newStatus == 'approved' ||
                     newStatus == 'released' ||
                     newStatus == 'rejected')) {
-          uniqueRequests[requestId] = request;
+          uniqueRequests[dedupeKey] = request;
         }
       } else {
-        uniqueRequests[requestId] = request;
+        uniqueRequests[dedupeKey] = request;
       }
     }
     
@@ -377,11 +519,7 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
 
     // Sort all requests by date (newest first)
     allUserRequests.sort(
-      (a, b) {
-        final aDate = a['requestedAt']?.toString() ?? a['archivedAt']?.toString() ?? '';
-        final bDate = b['requestedAt']?.toString() ?? b['archivedAt']?.toString() ?? '';
-        return bDate.compareTo(aDate);
-      },
+      (a, b) => _parseRequestSortDate(b).compareTo(_parseRequestSortDate(a)),
     );
 
       // Debug: Print all raw data first
@@ -471,10 +609,12 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
           final dataSource = r['dataSource']?.toString();
           final returnedAt = r['returnedAt']?.toString();
           
-          // Accurate: only show items that are truly returned.
-          // Do NOT infer returned based on returnedAt/history source because that can misclassify
-          // rejected/unreleased requests.
-          final shouldIncludeInReturned = status == 'returned';
+          // Returned detection:
+          // Some historical records (especially from web/admin archives) may not have status set to
+          // 'returned' but will have a returnedAt timestamp.
+          // Safe rule: include as returned if (status == 'returned') OR (returnedAt exists and status != 'rejected').
+          final hasReturnedAt = returnedAt != null && returnedAt.isNotEmpty;
+          final shouldIncludeInReturned = status == 'returned' || (hasReturnedAt && status != 'rejected');
           
           debugPrint('🔍 CHECKING: $itemName');
           debugPrint('   Status: "$status"');
@@ -493,14 +633,14 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
 
         // REJECTED: Items with status = 'rejected'
         _rejectedItems = allUserRequests
-            .where((r) => r['status'] == 'rejected')
+            .where((r) => r['status']?.toString() == 'rejected')
             .toList();
 
-        // ALL = CURRENT + RETURNED + REJECTED
-        _allRequests = [];
-        _allRequests.addAll(_currentBorrows);
-        _allRequests.addAll(_returnedItems);
-        _allRequests.addAll(_rejectedItems);
+        // ALL: globally sorted by date across all statuses
+        _allRequests = List<Map<String, dynamic>>.from(allUserRequests);
+        _allRequests.sort(
+          (a, b) => _parseRequestSortDate(b).compareTo(_parseRequestSortDate(a)),
+        );
 
         debugPrint('🔊 RESULTS:');
         debugPrint('   Current items: ${_currentBorrows.length}');
@@ -553,15 +693,6 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
           }
         }
 
-        // Sort all requests by date (newest first)
-        _allRequests.sort(
-          (a, b) {
-            final aDate = a['requestedAt']?.toString() ?? a['archivedAt']?.toString() ?? '';
-            final bDate = b['requestedAt']?.toString() ?? b['archivedAt']?.toString() ?? '';
-            return bDate.compareTo(aDate);
-          },
-        );
-        
         // Debug: Detailed tracking of CURRENT to RETURNED flow
         debugPrint('🔍 Current items (PENDING/APPROVED/RELEASED): ${_currentBorrows.length}');
         for (var item in _currentBorrows) {
@@ -782,30 +913,42 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      // Delete from borrow_requests
+      final now = DateTime.now().toIso8601String();
+
+      // Soft-delete (archive) instead of permanently deleting.
+      // This preserves historical records for analytics/auditing.
+      final archiveData = <String, dynamic>{
+        'archived': true,
+        'archivedAt': now,
+        'archivedBy': user.uid,
+        'deletedFromInterface': true,
+      };
+
+      // Mark main request as archived
       await FirebaseDatabase.instance
           .ref()
           .child('borrow_requests')
           .child(requestId)
-          .remove();
+          .update(archiveData);
 
-      // Delete from borrow_history if it exists
-      await FirebaseDatabase.instance
-          .ref()
-          .child('borrow_history')
-          .child(requestId)
-          .remove();
-
-      // Delete from user's borrow_requests subcollection
+      // Mark user's request copy as archived
       await FirebaseDatabase.instance
           .ref()
           .child('users')
           .child(user.uid)
           .child('borrow_requests')
           .child(requestId)
-          .remove();
+          .update(archiveData);
 
-      _showSnackBar('Request deleted successfully!', isError: false);
+      // Ensure history (if present) is never removed; just optionally mark it as archived too.
+      // Rejections are sometimes stored under `rejected_<requestId>`.
+      final historyRef = FirebaseDatabase.instance.ref().child('borrow_history');
+      await Future.wait([
+        historyRef.child(requestId).update(archiveData),
+        historyRef.child('rejected_$requestId').update(archiveData),
+      ]);
+
+      _showSnackBar('Request archived successfully!', isError: false);
       _loadBorrowingHistory();
     } catch (e) {
       _showSnackBar('Error deleting request: $e', isError: true);
@@ -1034,10 +1177,13 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
 
     final status = request['status']?.toString() ?? 'pending';
     final returnedAt = request['returnedAt']?.toString();
-    final rejectionRemarksRaw = request['rejectionRemarks']?.toString();
+    final processedByRole = request['processedByRole']?.toString().toLowerCase();
+    final isAdminRejection = processedByRole == 'admin';
+    final remarksRaw =
+        (request['rejectionRemarks'] ?? request['remarks'])?.toString();
     final rejectionRemarks =
-        (rejectionRemarksRaw != null && rejectionRemarksRaw.trim().isNotEmpty)
-            ? rejectionRemarksRaw.trim()
+        (isAdminRejection && remarksRaw != null && remarksRaw.trim().isNotEmpty)
+            ? remarksRaw.trim()
             : null;
     
     // Check if this item is in the RETURNED tab and force status to "Returned"

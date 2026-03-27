@@ -282,6 +282,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     _currentIndex = 2;
                   });
                 },
+                onNavigateToHistoryTab: (tabIndex) {
+                  if (!mounted) return;
+                  setState(() {
+                    _historyInitialTabIndex = tabIndex;
+                    _initPages();
+                    _currentIndex = 2;
+                  });
+                },
                 onNavigateToRequests: () {
                   if (!mounted) return;
                   // Only show Requests navigation for teachers

@@ -146,6 +146,25 @@ class _RequestPageState extends State<RequestPage>
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
+      String? processorName;
+      String? processorRole;
+      if (status == 'rejected') {
+        try {
+          final userSnapshot = await FirebaseDatabase.instance
+              .ref()
+              .child('users')
+              .child(user.uid)
+              .get();
+          if (userSnapshot.exists && userSnapshot.value is Map) {
+            final userData = userSnapshot.value as Map<dynamic, dynamic>;
+            processorName = userData['name']?.toString();
+            processorRole = userData['role']?.toString();
+          }
+        } catch (e) {
+          debugPrint('Error loading processor identity: $e');
+        }
+      }
+
       // Prevent self-approval: Check if the user is trying to approve their own request
       final requestUserId = request['userId'] as String?;
 
@@ -167,6 +186,10 @@ class _RequestPageState extends State<RequestPage>
         'status': status,
         'processedAt': DateTime.now().toIso8601String(),
         'processedBy': user.uid,
+        if (status == 'rejected' && processorName != null)
+          'processedByName': processorName,
+        if (status == 'rejected' && processorRole != null)
+          'processedByRole': processorRole,
         if (status == 'returned')
           'returnedAt': nowPhilippines.toIso8601String(),
         if (status == 'rejected') 'returnedAt': null,
@@ -199,14 +222,14 @@ class _RequestPageState extends State<RequestPage>
         final fullRequestData = Map<String, dynamic>.from(request);
         fullRequestData.addAll(updateData);
         fullRequestData['returnedAt'] = updateData['returnedAt'];
-        
+
         updates.add(
           BorrowHistoryService.archiveReturnedRequest(
             requestId,
             fullRequestData,
           ),
         );
-        
+
         // Decrement quantity_borrowed if the request was approved/released
         final requestSnapshot =
             await FirebaseDatabase.instance
@@ -218,7 +241,7 @@ class _RequestPageState extends State<RequestPage>
         if (requestSnapshot.exists) {
           final requestData = requestSnapshot.value as Map<dynamic, dynamic>;
           final previousStatus = requestData['status'] as String?;
-          
+
           if (previousStatus == 'approved' || previousStatus == 'released') {
             updates.add(
               _updateEquipmentQuantityBorrowed(
@@ -231,7 +254,7 @@ class _RequestPageState extends State<RequestPage>
           }
         }
       } else if (status == 'rejected') {
-        // If request was previously approved or released and now rejected, 
+        // If request was previously approved or released and now rejected,
         // we need to check if quantity was already decreased
         final requestSnapshot =
             await FirebaseDatabase.instance
@@ -243,7 +266,7 @@ class _RequestPageState extends State<RequestPage>
         if (requestSnapshot.exists) {
           final requestData = requestSnapshot.value as Map<dynamic, dynamic>;
           final previousStatus = requestData['status'] as String?;
-          
+
           // Only decrement if the request was previously released
           // (released is when quantity is actually decreased by Lab In Charge)
           if (previousStatus == 'released') {
@@ -257,6 +280,16 @@ class _RequestPageState extends State<RequestPage>
             );
           }
         }
+
+        final fullRequestData = Map<String, dynamic>.from(request);
+        fullRequestData.addAll(updateData);
+        fullRequestData['statusConsistency'] = 'rejected_archived_immediately';
+        updates.add(
+          BorrowHistoryService.archiveRejectedRequest(
+            'rejected_$requestId',
+            fullRequestData,
+          ),
+        );
       }
 
       await Future.wait(updates);
@@ -265,11 +298,21 @@ class _RequestPageState extends State<RequestPage>
       if (status == 'rejected') {
         final itemName = request['itemName']?.toString() ?? 'Equipment';
         final laboratory = request['laboratory']?.toString() ?? 'the laboratory';
+        final processedByRole = processorRole?.toLowerCase() == 'teacher'
+            ? 'Faculty/Instructor'
+            : processorRole?.toLowerCase() == 'admin'
+            ? 'Laboratory In-Charge'
+            : processorRole?.isNotEmpty == true ? processorRole : 'Laboratory In-Charge';
+        final processedByNamePart =
+            processorName != null && processorName.trim().isNotEmpty
+                ? ' (${processorName.trim()})'
+                : '';
+
         await NotificationService.sendNotificationToUser(
           userId: request['userId'],
           title: 'Borrow Request Rejected',
           message:
-              'Your request to borrow "$itemName" from the $laboratory was rejected by the Laboratory In-Charge.\n\nClick to view details.',
+              'Your request to borrow "$itemName" from the $laboratory was rejected by the $processedByRole$processedByNamePart.\n\nClick to view details.',
           type: 'error',
           additionalData: {
             'action': 'borrow_request_details',

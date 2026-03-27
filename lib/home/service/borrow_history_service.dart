@@ -33,6 +33,53 @@ class BorrowHistoryService {
       debugPrint('❌ Error archiving approved request: $e');
       // Don't throw - archiving is non-critical
     }
+
+  }
+
+  /// Archive a rejected request to history storage
+  /// Called when a request status changes to 'rejected'
+  static Future<void> archiveRejectedRequest(
+    String requestId,
+    Map<dynamic, dynamic> requestData,
+  ) async {
+    try {
+      final historyData = Map<String, dynamic>.from(requestData);
+      historyData['archivedAt'] = DateTime.now().toIso8601String();
+      final originalRequestId = historyData['originalRequestId']?.toString();
+      historyData['originalRequestId'] =
+          (originalRequestId != null && originalRequestId.isNotEmpty)
+              ? originalRequestId
+              : requestId;
+
+      // Ensure rejected requests never carry returnedAt
+      if (historyData['status']?.toString() == 'rejected') {
+        historyData['returnedAt'] = null;
+      }
+
+      final historySnapshot = await _database
+          .ref()
+          .child('borrow_history')
+          .child(requestId)
+          .get();
+
+      if (historySnapshot.exists) {
+        await _database
+            .ref()
+            .child('borrow_history')
+            .child(requestId)
+            .update(historyData);
+      } else {
+        await _database
+            .ref()
+            .child('borrow_history')
+            .child(requestId)
+            .set(historyData);
+      }
+
+      debugPrint('✅ Archived rejected request to history: $requestId');
+    } catch (e) {
+      debugPrint('❌ Error archiving rejected request: $e');
+    }
   }
 
   /// Archive a returned request to history storage
