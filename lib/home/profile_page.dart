@@ -150,6 +150,14 @@ class _ProfilePageState extends State<ProfilePage> {
               Icons.lock,
               _showChangePasswordDialog,
             ),
+
+            const SizedBox(height: 24),
+            _buildSectionHeader('Legal'),
+            _buildProfileOption(
+              'Privacy Policy',
+              Icons.privacy_tip,
+              _showPrivacyPolicy,
+            ),
             // Analytics section hidden for now
             // if (_userRole == 'teacher') ...[
             //   const SizedBox(height: 30),
@@ -603,6 +611,72 @@ class _ProfilePageState extends State<ProfilePage> {
           },
         );
       },
+    );
+  }
+
+  void _showPrivacyPolicy() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Privacy Policy'),
+            content: const SingleChildScrollView(
+              child: Text(
+                'Welcome to SMARTLAB Mobile Application. This Privacy Policy explains how we collect, use, and protect your personal information when you use the app as a Student or Instructor.\n\n'
+                '1. Scope of the Mobile Application\n'
+                'The SMARTLAB Mobile Application is used by:\n'
+                'Students – to request and borrow laboratory equipment\n'
+                'Instructors – to approve student equipment requests and borrow equipment for academic purposes\n'
+                'Instructors are not responsible for monitoring overall equipment usage within the system.\n\n'
+                '2. Information We Collect\n'
+                'When using the SMARTLAB Mobile Application, we collect:\n'
+                'Institutional email address (@dnsc.edu.ph)\n'
+                'Name and role (Student or Instructor)\n'
+                'Equipment borrowing records\n'
+                'Equipment request data\n'
+                'Approval records (for instructor actions)\n'
+                'Basic system activity logs (e.g., login and transactions)\n\n'
+                '3. How We Use Your Information\n'
+                'Your information is used for:\n'
+                'User authentication and secure access\n'
+                'Processing equipment borrowing requests\n'
+                'Allowing instructors to approve or reject student requests\n'
+                'Recording borrowing transactions and request history\n'
+                'Ensuring proper tracking of laboratory equipment usage for academic purposes\n'
+                'Improving system performance and reliability\n\n'
+                '4. Data Protection\n'
+                'SMARTLAB ensures that all collected data is:\n'
+                'Stored securely using appropriate security measures\n'
+                'Accessible only to authorized users based on their roles\n'
+                'Protected against unauthorized access, modification, or disclosure\n\n'
+                '5. Data Sharing\n'
+                'Your personal data is:\n'
+                'Not sold or shared with third parties\n'
+                'Only disclosed if required by law or institutional policies\n\n'
+                '6. Data Retention\n'
+                'Data is retained only as long as necessary for academic and system purposes and may be archived or deleted based on institutional policies.\n\n'
+                '7. User Rights\n'
+                'Under the Data Privacy Act of 2012, users have the right to:\n'
+                'Access their personal data\n'
+                'Request correction of inaccurate information\n'
+                'Request deletion of data (subject to institutional rules)\n'
+                'Be informed how their data is processed\n\n'
+                '8. Institutional Email Requirement\n'
+                'Only official institutional emails (@dnsc.edu.ph) are used to ensure secure and verified access to the system.\n\n'
+                '9. Policy Updates\n'
+                'SMARTLAB may update this Privacy Policy when necessary. Users will be notified of any significant changes through the application.\n\n'
+                '10. Contact Information\n'
+                'For concerns or inquiries about this Privacy Policy, users may contact the system administrator or the institution’s data privacy officer.',
+                style: TextStyle(fontSize: 14),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
     );
   }
 }
