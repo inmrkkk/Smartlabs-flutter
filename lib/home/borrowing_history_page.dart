@@ -363,6 +363,7 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
     List<Map<String, dynamic>> allUserRequests = [];
     final List<Map<String, dynamic>> newlyApprovedRequests = [];
     final List<Map<String, dynamic>> newlyReleasedRequests = [];
+    final List<Map<String, dynamic>> newlyRejectedRequests = [];
 
     // Process user's own requests (where they are the requester) - exactly like student UI
     if (userRequestsSnapshot.exists) {
@@ -387,6 +388,10 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
         if ((previousStatus == null || previousStatus != 'released') &&
             currentStatus == 'released') {
           newlyReleasedRequests.add(request);
+        }
+        if ((previousStatus == null || previousStatus != 'rejected') &&
+            currentStatus == 'rejected') {
+          newlyRejectedRequests.add(request);
         }
         allUserRequests.add(request);
       });
@@ -722,6 +727,7 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
 
     await _notifyApprovedRequests(newlyApprovedRequests);
     await _notifyReleasedRequests(newlyReleasedRequests);
+    await _notifyRejectedRequests(newlyRejectedRequests);
     await _notifyDueStatusReminders(_currentBorrows);
   }
 
@@ -814,17 +820,12 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
         final alreadyFlagged = await flagRef.get();
         if (alreadyFlagged.exists) continue;
 
-        await NotificationService.sendNotificationToUser(
+        await NotificationService.notifyRequestStatusChange(
           userId: user.uid,
-          title: 'Request Approved',
-          message:
-              'Your request for ${request['itemName'] ?? 'equipment'} has been approved.',
-          type: 'success',
-          additionalData: {
-            'requestId': requestId,
-            'status': 'approved',
-            'itemName': request['itemName'] ?? 'equipment',
-          },
+          requestId: requestId,
+          itemName: request['itemName'] ?? 'equipment',
+          status: 'approved',
+          reason: null,
         );
 
         await flagRef.set({
@@ -860,17 +861,12 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
         final alreadyFlagged = await flagRef.get();
         if (alreadyFlagged.exists) continue;
 
-        await NotificationService.sendNotificationToUser(
+        await NotificationService.notifyRequestStatusChange(
           userId: user.uid,
-          title: 'Item Released',
-          message:
-              'Your request for ${request['itemName'] ?? 'equipment'} has been released and is ready for pickup.',
-          type: 'success',
-          additionalData: {
-            'requestId': requestId,
-            'status': 'released',
-            'itemName': request['itemName'] ?? 'equipment',
-          },
+          requestId: requestId,
+          itemName: request['itemName'] ?? 'equipment',
+          status: 'released',
+          reason: null,
         );
 
         await flagRef.set({
@@ -880,6 +876,59 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
         });
       } catch (e) {
         debugPrint('Error notifying release: $e');
+      }
+    }
+  }
+
+  Future<void> _notifyRejectedRequests(
+    List<Map<String, dynamic>> newlyRejected,
+  ) async {
+    if (newlyRejected.isEmpty) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    for (final request in newlyRejected) {
+      final requestId = request['id']?.toString();
+      if (requestId == null) continue;
+
+      final flagKey = 'status_${requestId}_rejected';
+      final flagRef = FirebaseDatabase.instance
+          .ref()
+          .child('notification_flags')
+          .child(user.uid)
+          .child(flagKey);
+
+      try {
+        final alreadyFlagged = await flagRef.get();
+        if (alreadyFlagged.exists) continue;
+
+        final remarksRaw = (request['rejectionRemarks'] ??
+                request['remarks'] ??
+                request['rejectRemarks'] ??
+                request['rejectedRemarks'] ??
+                request['rejectReason'] ??
+                request['reason'])
+            ?.toString();
+        final reason =
+            (remarksRaw != null && remarksRaw.trim().isNotEmpty)
+                ? remarksRaw.trim()
+                : null;
+
+        await NotificationService.notifyRequestStatusChange(
+          userId: user.uid,
+          requestId: requestId,
+          itemName: request['itemName'] ?? 'equipment',
+          status: 'rejected',
+          reason: reason,
+        );
+
+        await flagRef.set({
+          'requestId': requestId,
+          'status': 'rejected',
+          'sentAt': DateTime.now().toIso8601String(),
+        });
+      } catch (e) {
+        debugPrint('Error notifying rejection: $e');
       }
     }
   }

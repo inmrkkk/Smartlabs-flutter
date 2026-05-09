@@ -323,6 +323,7 @@ class _RequestPageState extends State<RequestPage>
       } else {
         await NotificationService.notifyRequestStatusChange(
           userId: request['userId'],
+          requestId: requestId,
           itemName: request['itemName'],
           status: status,
           reason: null,

@@ -65,6 +65,7 @@ class NotificationService {
   // Send notification when request status changes
   static Future<void> notifyRequestStatusChange({
     required String userId,
+    required String requestId,
     required String itemName,
     required String status,
     String? reason,
@@ -111,6 +112,8 @@ class NotificationService {
         'itemName': itemName,
         'status': status,
         'reason': reason,
+        'requestId': requestId,
+        'action': 'borrow_request_details',
       },
     );
   }

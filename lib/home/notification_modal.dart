@@ -522,10 +522,20 @@ class _NotificationModalState extends State<NotificationModal> {
                                       'borrow_request_details' &&
                                   notification.requestId != null &&
                                   notification.requestId!.isNotEmpty) {
+                                
+                                // Determine which tab to show based on status
+                                // 0: All, 1: Current, 2: Returned, 3: Rejected
+                                int tabIndex = 1; // Default to Current/Active tab
+                                if (notification.status == 'rejected') {
+                                  tabIndex = 3; // Rejected tab
+                                } else if (notification.status == 'returned') {
+                                  tabIndex = 2; // Returned tab
+                                }
+
                                 final navigateToHistoryTab =
                                     widget.onNavigateToHistoryTab;
                                 if (navigateToHistoryTab != null) {
-                                  navigateToHistoryTab(2);
+                                  navigateToHistoryTab(tabIndex);
                                   return;
                                 }
 
@@ -538,8 +548,8 @@ class _NotificationModalState extends State<NotificationModal> {
                                       },
                                     ),
                                     builder:
-                                        (_) => const BorrowingHistoryPage(
-                                          initialTabIndex: 2,
+                                        (_) => BorrowingHistoryPage(
+                                          initialTabIndex: tabIndex,
                                         ),
                                   ),
                                 );
