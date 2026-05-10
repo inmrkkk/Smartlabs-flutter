@@ -402,6 +402,9 @@ class _CategoryItemsPageState extends State<CategoryItemsPage> {
                       itemName: item.name,
                       categoryName: widget.category.title,
                       quantity: quantity,
+                      labId: widget.category.labId,
+                      labRecordId: widget.category.labRecordId,
+                      labName: widget.category.labName,
                     ),
                   );
                 },

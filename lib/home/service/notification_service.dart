@@ -69,6 +69,9 @@ class NotificationService {
     required String itemName,
     required String status,
     String? reason,
+    String? rejectedByName,
+    String? rejectedByRole,
+    String? laboratory,
   }) async {
     String title;
     String message;
@@ -88,8 +91,38 @@ class NotificationService {
         break;
       case 'rejected':
         title = 'Request Rejected';
-        message =
-            'Your request for $itemName was rejected.${reason != null ? ' Reason: $reason' : ''}';
+        // Build a descriptive message including who rejected the request
+        final hasRejectorInfo = rejectedByName != null && rejectedByName.trim().isNotEmpty;
+        final hasRoleInfo = rejectedByRole != null && rejectedByRole.trim().isNotEmpty;
+        final hasLabInfo = laboratory != null && laboratory.trim().isNotEmpty;
+
+        if (hasRejectorInfo || hasRoleInfo) {
+          // Determine display role
+          String displayRole;
+          if (hasRoleInfo) {
+            final roleLower = rejectedByRole.trim().toLowerCase();
+            if (roleLower == 'teacher' || roleLower == 'instructor' || roleLower == 'faculty') {
+              displayRole = 'Faculty';
+            } else if (roleLower == 'admin' || roleLower == 'lab_incharge' || roleLower == 'labincharge') {
+              displayRole = 'Laboratory In-Charge';
+            } else {
+              displayRole = rejectedByRole.trim();
+            }
+          } else {
+            displayRole = 'Faculty';
+          }
+
+          final namePart = hasRejectorInfo ? rejectedByName.trim() : displayRole;
+          final rolePart = hasRejectorInfo ? ' ($displayRole)' : '';
+          final labPart = hasLabInfo ? ' from the ${laboratory.trim()}' : '';
+
+          message =
+              'Your request to borrow "$itemName"$labPart was rejected by $namePart$rolePart.${reason != null ? '\n\nReason: $reason' : ''}\n\nClick to view details.';
+        } else {
+          final labPart = hasLabInfo ? ' from the ${laboratory.trim()}' : '';
+          message =
+              'Your request for $itemName$labPart was rejected.${reason != null ? ' Reason: $reason' : ''}';
+        }
         type = 'error';
         break;
       case 'returned':
@@ -103,17 +136,35 @@ class NotificationService {
         type = 'info';
     }
 
+    // Set a flag in Firebase to prevent duplicate notifications for this specific status change
+    try {
+      final flagKey = 'status_${requestId}_$status';
+      await _database
+          .ref()
+          .child('notification_flags')
+          .child(userId)
+          .child(flagKey)
+          .set({
+            'notified': true,
+            'timestamp': ServerValue.timestamp,
+            'sentBy': 'unified_service',
+          });
+      debugPrint('✅ Set notification flag for $flagKey');
+    } catch (e) {
+      debugPrint('Error setting notification flag: $e');
+    }
+
     await sendNotificationToUser(
       userId: userId,
       title: title,
       message: message,
       type: type,
       additionalData: {
-        'itemName': itemName,
-        'status': status,
-        'reason': reason,
-        'requestId': requestId,
         'action': 'borrow_request_details',
+        'requestId': requestId,
+        'status': status,
+        'rejectedByName': rejectedByName,
+        'rejectedByRole': rejectedByRole,
       },
     );
   }

@@ -36,14 +36,34 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
     _loadUserRole();
     _teacherService.loadTeachers();
     _laboratoryService.loadLaboratories().then((_) {
-      // Set default laboratory to first available lab
-      if (_laboratoryService.laboratories.isNotEmpty &&
-          _selectedLaboratory == null) {
-        if (mounted) {
-          setState(() {
-            _selectedLaboratory = _laboratoryService.laboratories.first;
-          });
+      if (!mounted) return;
+
+      // Try to determine the laboratory from the cart items
+      if (_cartService.isNotEmpty && _selectedLaboratory == null) {
+        final firstItemWithLab = _cartService.items.firstWhere(
+          (item) => item.labId != null || item.labRecordId != null,
+          orElse: () => _cartService.items.first,
+        );
+
+        if (firstItemWithLab.labRecordId != null) {
+          _selectedLaboratory = _laboratoryService.getLaboratoryById(
+            firstItemWithLab.labRecordId!,
+          );
+        } else if (firstItemWithLab.labId != null) {
+          _selectedLaboratory = _laboratoryService.getLaboratoryById(
+            firstItemWithLab.labId!,
+          );
         }
+      }
+
+      // Fallback to first available lab if still null
+      if (_selectedLaboratory == null &&
+          _laboratoryService.laboratories.isNotEmpty) {
+        setState(() {
+          _selectedLaboratory = _laboratoryService.laboratories.first;
+        });
+      } else {
+        setState(() {});
       }
     });
   }
@@ -187,9 +207,15 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
           'itemName': item.itemName,
           'categoryName': item.categoryName,
           'itemNo': 'LAB-${item.itemId.substring(0, 5).toUpperCase()}',
-          'laboratory': _selectedLaboratory!.labName, // Display name for backward compatibility
-          'labId': _selectedLaboratory!.labId, // Lab code (e.g., "LAB001")
-          'labRecordId': _selectedLaboratory!.id, // Firebase record ID
+          'laboratory':
+              item.labName ??
+              _selectedLaboratory!.labName, // Use item's specific lab if available
+          'labId':
+              item.labId ??
+              _selectedLaboratory!.labId, // Use item's specific lab if available
+          'labRecordId':
+              item.labRecordId ??
+              _selectedLaboratory!.id, // Use item's specific lab if available
           'quantity': item.quantity,
           'dateToBeUsed': _dateToBeUsed!.toIso8601String(),
           'dateToReturn': _dateToReturn!.toIso8601String(),
@@ -488,7 +514,7 @@ class _BatchBorrowFormPageState extends State<BatchBorrowFormPage> {
                           ),
                         ),
                         Text(
-                          item.categoryName,
+                          '${item.categoryName}${item.labName != null ? ' (${item.labName})' : ''}',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade600,

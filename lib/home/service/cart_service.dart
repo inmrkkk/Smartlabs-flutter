@@ -6,6 +6,9 @@ class CartItem {
   final String itemName;
   final String categoryName;
   final int quantity;
+  final String? labId;
+  final String? labRecordId;
+  final String? labName;
 
   CartItem({
     required this.itemId,
@@ -13,6 +16,9 @@ class CartItem {
     required this.itemName,
     required this.categoryName,
     this.quantity = 1,
+    this.labId,
+    this.labRecordId,
+    this.labName,
   });
 
   Map<String, dynamic> toMap() {
@@ -22,6 +28,9 @@ class CartItem {
       'itemName': itemName,
       'categoryName': categoryName,
       'quantity': quantity,
+      'labId': labId,
+      'labRecordId': labRecordId,
+      'labName': labName,
     };
   }
 
@@ -32,6 +41,9 @@ class CartItem {
       itemName: map['itemName'],
       categoryName: map['categoryName'],
       quantity: map['quantity'] ?? 1,
+      labId: map['labId'],
+      labRecordId: map['labRecordId'],
+      labName: map['labName'],
     );
   }
 
@@ -42,6 +54,9 @@ class CartItem {
       itemName: itemName,
       categoryName: categoryName,
       quantity: quantity ?? this.quantity,
+      labId: labId,
+      labRecordId: labRecordId,
+      labName: labName,
     );
   }
 }

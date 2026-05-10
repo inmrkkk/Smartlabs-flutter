@@ -56,6 +56,21 @@ class _NotificationModalState extends State<NotificationModal> {
           // Skip invalid data that's not a Map
           if (value is Map<dynamic, dynamic>) {
             final notificationData = value;
+            
+            // Auto-cleanup for old-format duplicate notifications from web admin
+            final title = notificationData['title']?.toString() ?? '';
+            if (title == 'Borrow Request Rejected') {
+              // Silently remove from Firebase to prevent duplication with our new unified notifications
+              FirebaseDatabase.instance
+                  .ref()
+                  .child('notifications')
+                  .child(user.uid)
+                  .child(key.toString())
+                  .remove()
+                  .catchError((e) => debugPrint('Error auto-deleting legacy notification: $e'));
+              return; // Skip adding to local list
+            }
+
             notifications.add(NotificationItem.fromMap(key, notificationData));
           } else {
             debugPrint('Skipping invalid notification data: key=$key, value=$value (${value.runtimeType})');

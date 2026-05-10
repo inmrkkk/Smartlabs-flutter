@@ -69,8 +69,12 @@ class _CartPageState extends State<CartPage> {
         return;
       }
 
-      // Get category name from categoryId
+      // Get category name and lab info from categoryId
       String categoryName = 'Unknown Category';
+      String? labId;
+      String? labRecordId;
+      String? labName;
+      
       try {
         final categories = await EquipmentService.getCategories();
         final category = categories.firstWhere(
@@ -86,11 +90,14 @@ class _CartPageState extends State<CartPage> {
               ),
         );
         categoryName = category.title;
+        labId = category.labId;
+        labRecordId = category.labRecordId;
+        labName = category.labName;
       } catch (e) {
-        debugPrint('Error getting category name: $e');
+        debugPrint('Error getting category details: $e');
       }
-
-      // Add to cart with quantity 1
+      
+      // Add to cart with quantity 1 and lab info
       _cartService.addItem(
         CartItem(
           itemId: item.id,
@@ -98,6 +105,9 @@ class _CartPageState extends State<CartPage> {
           itemName: item.name,
           categoryName: categoryName,
           quantity: 1,
+          labId: labId,
+          labRecordId: labRecordId,
+          labName: labName,
         ),
       );
 
@@ -377,7 +387,7 @@ class _CartPageState extends State<CartPage> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    item.categoryName,
+                    '${item.categoryName}${item.labName != null ? ' (${item.labName})' : ''}',
                     style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
                   ),
                 ],

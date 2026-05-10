@@ -29,6 +29,8 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
   List<Map<String, dynamic>> _rejectedItems = [];
   late TabController _tabController;
   Map<String, String> _requestStatuses = {};
+  Timer? _debounceTimer;
+  bool _isProcessing = false;
   final Set<String> _sentReminderKeys = <String>{};
 
   DateTime _parseRequestSortDate(Map<String, dynamic> request) {
@@ -164,6 +166,7 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
   @override
   void dispose() {
     _tabController.dispose();
+    _debounceTimer?.cancel();
     super.dispose();
   }
 
@@ -222,12 +225,23 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
   }
 
   Future<void> _processRealtimeUpdate(DataSnapshot snapshot) async {
-    // For real-time updates, we only need to reload the full data
-    // This ensures consistency between current and historical data
-    await _loadBorrowingHistory();
-    
-    // Also check for returned requests that need to be synced to history
-    await _syncReturnedRequestsToHistory();
+    // Implement debouncing to prevent multiple rapid reloads and duplicate notifications
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
+      if (!mounted || _isProcessing) return;
+      
+      try {
+        _isProcessing = true;
+        // For real-time updates, we only need to reload the full data
+        // This ensures consistency between current and historical data
+        await _loadBorrowingHistory();
+        
+        // Also check for returned requests that need to be synced to history
+        await _syncReturnedRequestsToHistory();
+      } finally {
+        _isProcessing = false;
+      }
+    });
   }
 
   Future<void> _syncReturnedRequestsToHistory() async {
@@ -370,7 +384,10 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
       final data = userRequestsSnapshot.value as Map<dynamic, dynamic>;
       data.forEach((key, value) {
         final request = Map<String, dynamic>.from(value);
-        request['id'] = key;
+        // Normalize ID by stripping rejected_ prefix if present
+        final rawId = key.toString();
+        request['id'] = rawId.startsWith('rejected_') ? rawId.substring(9) : rawId;
+        
         request['dataSource'] = 'borrow_requests';
         request['requestType'] = 'own'; // Mark as own request
         // Ensure status field exists, default to pending if missing
@@ -378,21 +395,6 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
           request['status'] = 'pending';
         }
 
-        final requestId = key.toString();
-        final currentStatus = request['status']?.toString();
-        final previousStatus = _requestStatuses[requestId];
-        if ((previousStatus == null || previousStatus != 'approved') &&
-            currentStatus == 'approved') {
-          newlyApprovedRequests.add(request);
-        }
-        if ((previousStatus == null || previousStatus != 'released') &&
-            currentStatus == 'released') {
-          newlyReleasedRequests.add(request);
-        }
-        if ((previousStatus == null || previousStatus != 'rejected') &&
-            currentStatus == 'rejected') {
-          newlyRejectedRequests.add(request);
-        }
         allUserRequests.add(request);
       });
     }
@@ -408,11 +410,16 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
           request['historyNodeKey'] = key.toString();
           final originalRequestId = request['originalRequestId']?.toString();
           final requestIdFromWeb = request['requestId']?.toString();
-          request['id'] = (originalRequestId != null && originalRequestId.isNotEmpty)
+          
+          final rawId = (originalRequestId != null && originalRequestId.isNotEmpty)
               ? originalRequestId
               : (requestIdFromWeb != null && requestIdFromWeb.isNotEmpty)
                   ? requestIdFromWeb
-                  : key;
+                  : key.toString();
+          
+          // Normalize ID by stripping rejected_ prefix
+          request['id'] = rawId.startsWith('rejected_') ? rawId.substring(9) : rawId;
+
           request['dataSource'] = 'borrow_history';
           request['requestType'] = 'own'; // Mark as own request
           // Ensure status field exists
@@ -434,11 +441,16 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
           request['historyNodeKey'] = key.toString();
           final originalRequestId = request['originalRequestId']?.toString();
           final requestIdFromWeb = request['requestId']?.toString();
-          request['id'] = (originalRequestId != null && originalRequestId.isNotEmpty)
+          
+          final rawId = (originalRequestId != null && originalRequestId.isNotEmpty)
               ? originalRequestId
               : (requestIdFromWeb != null && requestIdFromWeb.isNotEmpty)
                   ? requestIdFromWeb
-                  : key;
+                  : key.toString();
+          
+          // Normalize ID by stripping rejected_ prefix
+          request['id'] = rawId.startsWith('rejected_') ? rawId.substring(9) : rawId;
+
           request['dataSource'] = 'borrow_history';
           request['requestType'] = 'own';
           if (!request.containsKey('status') || request['status'] == null) {
@@ -450,6 +462,7 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
     }
 
     // Remove duplicates - normalize by logical request id.
+    // Always use the logical request ID so each physical request appears exactly once.
     // Prefer history entries over current requests for terminal statuses (returned/rejected)
     // so deletion from borrow_requests doesn't make items disappear.
     final Map<String, Map<String, dynamic>> uniqueRequests = {};
@@ -457,15 +470,9 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
       final logicalRequestId = request['id']?.toString() ?? '';
       if (logicalRequestId.isEmpty) continue;
 
-      // Dedupe key strategy:
-      // - For live requests (borrow_requests): use the logical request id
-      // - For history (borrow_history): keep each history row distinct using its node key
-      //   to avoid collapsing multiple rejected records that share the same requestId.
-      final dataSource = request['dataSource']?.toString() ?? '';
-      final historyNodeKey = request['historyNodeKey']?.toString();
-      final dedupeKey = (dataSource == 'borrow_history' && historyNodeKey != null && historyNodeKey.isNotEmpty)
-          ? 'h:$historyNodeKey'
-          : logicalRequestId;
+      // Always use the logical request ID as the dedup key, regardless of data source.
+      // This ensures each unique request appears only once across all tabs.
+      final dedupeKey = logicalRequestId;
       
       // If this request already exists, decide which one to keep
       if (uniqueRequests.containsKey(dedupeKey)) {
@@ -475,35 +482,33 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
         final existingSource = existing['dataSource']?.toString() ?? '';
         final newSource = request['dataSource']?.toString() ?? '';
 
-        // Always preserve rejected status, preferring history when available
-        if (newStatus == 'rejected' || existingStatus == 'rejected') {
-          if (existingStatus != 'rejected' && newStatus == 'rejected') {
-            uniqueRequests[dedupeKey] = request;
-            continue;
-          }
-          if (existingStatus == 'rejected' && newStatus != 'rejected') {
-            continue;
-          }
-          if (existingStatus == 'rejected' && newStatus == 'rejected') {
-            if (existingSource != 'borrow_history' && newSource == 'borrow_history') {
-              uniqueRequests[dedupeKey] = request;
-            }
-            continue;
-          }
-        }
-        
-        // Prefer the entry with more recent status information
-        // History entries (borrow_history) are preferred for terminal items
-        // Current requests (borrow_requests) are preferred for active items
-        if (newSource == 'borrow_history' && (newStatus == 'returned' || newStatus == 'rejected')) {
+        // Terminal statuses (rejected/returned) always win over non-terminal
+        const terminalStatuses = {'rejected', 'returned'};
+        final existingIsTerminal = terminalStatuses.contains(existingStatus);
+        final newIsTerminal = terminalStatuses.contains(newStatus);
+
+        if (newIsTerminal && !existingIsTerminal) {
+          // New entry has a terminal status, replace
           uniqueRequests[dedupeKey] = request;
-        } else if (existingSource == 'borrow_history' && (existingStatus == 'returned' || existingStatus == 'rejected')) {
-          // Keep existing history entry
-        } else if (newSource == 'borrow_requests' &&
-                   (newStatus == 'pending' ||
-                    newStatus == 'approved' ||
-                    newStatus == 'released' ||
-                    newStatus == 'rejected')) {
+          continue;
+        }
+        if (existingIsTerminal && !newIsTerminal) {
+          // Existing entry already has terminal status, keep it
+          continue;
+        }
+
+        // Both terminal or both non-terminal: prefer history for terminal, live for active
+        if (newIsTerminal && existingIsTerminal) {
+          // Both terminal — prefer history source for archival accuracy
+          if (newSource == 'borrow_history' && existingSource != 'borrow_history') {
+            uniqueRequests[dedupeKey] = request;
+          }
+          // If both from same source or existing is already from history, keep existing
+          continue;
+        }
+
+        // Both non-terminal — prefer live data (borrow_requests)
+        if (newSource == 'borrow_requests' && existingSource != 'borrow_requests') {
           uniqueRequests[dedupeKey] = request;
         }
       } else {
@@ -513,6 +518,32 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
     
     // Convert back to list
     allUserRequests = uniqueRequests.values.toList();
+
+    // After deduplication, evaluate for status changes (notifications)
+    debugPrint('🔔 CHECKING STATUS CHANGES for ${allUserRequests.length} items');
+    for (var request in allUserRequests) {
+      final requestId = request['id']?.toString() ?? '';
+      if (requestId.isEmpty) continue;
+
+      final currentStatus = request['status']?.toString();
+      final previousStatus = _requestStatuses[requestId];
+
+      if (currentStatus != previousStatus) {
+        debugPrint('🔔 STATUS CHANGE DETECTED: $requestId | $previousStatus -> $currentStatus');
+        if ((previousStatus == null || previousStatus != 'approved') && currentStatus == 'approved') {
+          debugPrint('   -> Adding to newlyApproved');
+          newlyApprovedRequests.add(request);
+        }
+        if ((previousStatus == null || previousStatus != 'released') && currentStatus == 'released') {
+          debugPrint('   -> Adding to newlyReleased');
+          newlyReleasedRequests.add(request);
+        }
+        if ((previousStatus == null || previousStatus != 'rejected') && currentStatus == 'rejected') {
+          debugPrint('   -> Adding to newlyRejected');
+          newlyRejectedRequests.add(request);
+        }
+      }
+    }
 
     // Debug: Log deduplication results
     debugPrint('🔍 DEDUPLICATION RESULTS:');
@@ -569,40 +600,25 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
         }
 
         // CURRENT: Only items from borrow_requests that are truly active (exactly like admin panel)
-        debugPrint('🔄 CURRENT TAB FILTERING (EXACTLY LIKE ADMIN PANEL):');
+        debugPrint('🔄 CURRENT TAB FILTERING:');
         _currentBorrows = [];
         for (var r in allUserRequests) {
           final status = r['status']?.toString();
           final itemName = r['itemName']?.toString();
-          final dataSource = r['dataSource']?.toString();
           final returnedAt = r['returnedAt']?.toString();
           
-          // Only include items from borrow_requests that are active (no returnedAt)
-          // This exactly matches what admin panel sees
-          final isCurrentActive = (dataSource == 'borrow_requests') &&
-                                 (returnedAt == null || returnedAt == '') &&
-                                 (status == 'pending' || status == 'approved' || status == 'released');
-          
-          debugPrint('🔍 CHECKING: $itemName');
-          debugPrint('   Status: "$status"');
-          debugPrint('   DataSource: "$dataSource"');
-          debugPrint('   ReturnedAt: "$returnedAt"');
-          debugPrint('   Is current active (like admin): $isCurrentActive');
+          // Include items that are actively being processed (no returnedAt)
+          // After dedup, we don't restrict by dataSource — if the item has
+          // an active status it belongs in Current regardless of which
+          // data source survived deduplication.
+          final isCurrentActive =
+              (returnedAt == null || returnedAt == '') &&
+              (status == 'pending' || status == 'approved' || status == 'released');
           
           if (isCurrentActive) {
             _currentBorrows.add(r);
-            debugPrint('   ✅ INCLUDED in CURRENT (active request)');
-          } else {
-            debugPrint('   ❌ EXCLUDED from CURRENT');
-            if (dataSource != 'borrow_requests') {
-              debugPrint('   Reason: From history, not active requests');
-            } else if (returnedAt != null && returnedAt != '') {
-              debugPrint('   Reason: Has returnedAt - already returned');
-            } else if (status != 'pending' && status != 'approved' && status != 'released') {
-              debugPrint('   Reason: Status is $status - not active');
-            }
+            debugPrint('   ✅ CURRENT: $itemName (status=$status)');
           }
-          debugPrint('   ---');
         }
 
         // RETURNED: Show ALL items that could possibly be returned (aggressive approach)
@@ -907,6 +923,8 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
                 request['rejectRemarks'] ??
                 request['rejectedRemarks'] ??
                 request['rejectReason'] ??
+                request['rejection_reason'] ??
+                request['rejectionReason'] ??
                 request['reason'])
             ?.toString();
         final reason =
@@ -914,12 +932,104 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
                 ? remarksRaw.trim()
                 : null;
 
+        // Extract rejector identity with even more aggressive fallbacks for web-admin rejections
+        // Start with null to force lookup from UID if we don't have a specific name field
+        String? rejectedByName =
+            request['rejectedByName']?.toString() ??
+            request['labInChargeName']?.toString() ??
+            request['adminName']?.toString();
+            
+        // If the name is just a generic title, treat it as null to trigger UID lookup
+        if (rejectedByName != null) {
+          final nameLower = rejectedByName.trim().toLowerCase();
+          if (nameLower == 'laboratory in-charge' || 
+              nameLower == 'laboratory in charge' || 
+              nameLower == 'admin' ||
+              nameLower == 'lab in-charge') {
+            rejectedByName = null;
+          }
+        }
+        
+        // Also check processedByName but treat it as a weak fallback
+        final processedByName = request['processedByName']?.toString();
+        if (rejectedByName == null && processedByName != null) {
+          final nameLower = processedByName.trim().toLowerCase();
+          if (nameLower != 'laboratory in-charge' && 
+              nameLower != 'laboratory in charge' && 
+              nameLower != 'admin' &&
+              nameLower != 'lab in-charge') {
+            rejectedByName = processedByName;
+          }
+        }
+
+        String? rejectedByRole =
+            request['rejectedByRole']?.toString() ??
+            request['labInChargeRole']?.toString() ??
+            request['adminRole']?.toString() ??
+            request['processedByRole']?.toString();
+
+        final laboratory = request['laboratory']?.toString();
+
+        // Find the best UID for lookup: prefer rejection-specific admin fields
+        final processedByUid =
+            request['rejectedBy']?.toString() ??
+            request['labInChargeId']?.toString() ??
+            request['adminId']?.toString() ??
+            request['processedBy']?.toString();
+
+        // Check if this is a web-admin history entry (not prefixed with 'rejected_')
+        final isWebAdminHistory = request['historyNodeKey'] != null && 
+                                 !request['historyNodeKey'].toString().startsWith('rejected_');
+
+        if (processedByUid != null &&
+            processedByUid.isNotEmpty &&
+            (rejectedByName == null || rejectedByName.trim().isEmpty)) {
+          try {
+            final processorSnapshot = await FirebaseDatabase.instance
+                .ref()
+                .child('users')
+                .child(processedByUid)
+                .get();
+            if (processorSnapshot.exists && processorSnapshot.value is Map) {
+              final processorData =
+                  processorSnapshot.value as Map<dynamic, dynamic>;
+              rejectedByName ??= processorData['name']?.toString();
+              rejectedByRole ??= processorData['role']?.toString();
+            }
+          } catch (e) {
+            debugPrint('Error looking up rejector identity: $e');
+          }
+        }
+
+        // Final role guessing if still missing
+        if (rejectedByRole == null || rejectedByRole.isEmpty) {
+          if (isWebAdminHistory) {
+            rejectedByRole = 'admin';
+          } else if (processedByUid != null) {
+            if (processedByUid == request['adviserId']?.toString()) {
+              rejectedByRole = 'teacher';
+            } else {
+              rejectedByRole = 'admin';
+            }
+          }
+        }
+
+        // Final safety check for name
+        if (rejectedByName == null || rejectedByName.isEmpty) {
+           if (rejectedByRole == 'teacher' || rejectedByRole == 'instructor') {
+             rejectedByName = request['adviserName']?.toString();
+           }
+        }
+
         await NotificationService.notifyRequestStatusChange(
           userId: user.uid,
           requestId: requestId,
           itemName: request['itemName'] ?? 'equipment',
           status: 'rejected',
           reason: reason,
+          rejectedByName: rejectedByName,
+          rejectedByRole: rejectedByRole,
+          laboratory: laboratory,
         );
 
         await flagRef.set({
@@ -1297,14 +1407,50 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
             request['rejectRemarks'] ??
             request['rejectedRemarks'] ??
             request['rejectReason'] ??
+            request['rejection_reason'] ??
+            request['reject_reason'] ??
             request['reason'])
         ?.toString();
     final rejectionRemarks =
         (remarksRaw != null && remarksRaw.trim().isNotEmpty) ? remarksRaw.trim() : null;
     
-    // Check if this item is in the RETURNED tab and force status to "Returned"
+    // Check if this item is in the RETURNED or REJECTED tab and force status accordingly
     final isInReturnedTab = _returnedItems.contains(request);
-    final displayStatus = isInReturnedTab ? 'returned' : status;
+    final isInRejectedTab = _rejectedItems.contains(request);
+    final displayStatus = isInReturnedTab 
+        ? 'returned' 
+        : (isInRejectedTab || status == 'rejected') ? 'rejected' : status;
+
+    // Extract rejector name for display in card
+    String? rejectedByName;
+    if (displayStatus == 'rejected') {
+      rejectedByName = request['rejectedByName']?.toString() ??
+          request['labInChargeName']?.toString() ??
+          request['adminName']?.toString() ??
+          request['processedByName']?.toString();
+          
+      // Clean up generic titles
+      if (rejectedByName != null) {
+        final nameLower = rejectedByName.trim().toLowerCase();
+        if (nameLower == 'laboratory in-charge' || 
+            nameLower == 'laboratory in charge' || 
+            nameLower == 'admin' ||
+            nameLower == 'lab in-charge') {
+          rejectedByName = null;
+        }
+      }
+      
+      // If still null and it's a web archive, default to title
+      if (rejectedByName == null) {
+        final isWebAdminHistory = request['historyNodeKey'] != null && 
+                                 !request['historyNodeKey'].toString().startsWith('rejected_');
+        if (isWebAdminHistory) {
+          rejectedByName = 'Laboratory In-Charge';
+        } else if (request['adviserName'] != null) {
+          rejectedByName = request['adviserName']?.toString();
+        }
+      }
+    }
     
     debugPrint('🎨 Building card for: ${request['itemName']}');
     debugPrint('   Original status: $status');
@@ -1523,6 +1669,8 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
             _infoText('Laboratory', laboratory),
             _infoText('Quantity', quantity),
             _infoText('Usage Period', '$dateToBeUsed → $dateToReturn'),
+            if (displayStatus == 'rejected' && rejectedByName != null)
+              _infoText('Rejected By', rejectedByName),
             _infoText('Requested At', requestDate),
             if (returnedDate != null && displayStatus == 'returned')
               _infoText('Returned At', returnedDate),
@@ -1543,13 +1691,19 @@ class _BorrowingHistoryPageState extends State<BorrowingHistoryPage>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Rejection Remarks',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                        color: Color(0xFFE74C3C),
-                      ),
+                    const Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 14, color: Color(0xFFE74C3C)),
+                        SizedBox(width: 6),
+                        Text(
+                          'Rejection Remarks',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            color: Color(0xFFE74C3C),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 6),
                     Text(

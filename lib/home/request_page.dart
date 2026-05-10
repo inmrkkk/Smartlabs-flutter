@@ -294,41 +294,17 @@ class _RequestPageState extends State<RequestPage>
 
       await Future.wait(updates);
 
-      // Send notification to student about status change
-      if (status == 'rejected') {
-        final itemName = request['itemName']?.toString() ?? 'Equipment';
-        final laboratory = request['laboratory']?.toString() ?? 'the laboratory';
-        final processedByRole = processorRole?.toLowerCase() == 'teacher'
-            ? 'Faculty/Instructor'
-            : processorRole?.toLowerCase() == 'admin'
-            ? 'Laboratory In-Charge'
-            : processorRole?.isNotEmpty == true ? processorRole : 'Laboratory In-Charge';
-        final processedByNamePart =
-            processorName != null && processorName.trim().isNotEmpty
-                ? ' (${processorName.trim()})'
-                : '';
-
-        await NotificationService.sendNotificationToUser(
-          userId: request['userId'],
-          title: 'Borrow Request Rejected',
-          message:
-              'Your request to borrow "$itemName" from the $laboratory was rejected by the $processedByRole$processedByNamePart.\n\nClick to view details.',
-          type: 'error',
-          additionalData: {
-            'action': 'borrow_request_details',
-            'requestId': requestId,
-            'status': 'rejected',
-          },
-        );
-      } else {
-        await NotificationService.notifyRequestStatusChange(
-          userId: request['userId'],
-          requestId: requestId,
-          itemName: request['itemName'],
-          status: status,
-          reason: null,
-        );
-      }
+      // Use the unified notification service for all status changes
+      await NotificationService.notifyRequestStatusChange(
+        userId: request['userId'],
+        requestId: requestId,
+        itemName: request['itemName'],
+        status: status,
+        reason: updateData['rejectionRemarks'] ?? updateData['reason'] ?? updateData['remarks'],
+        rejectedByName: processorName,
+        rejectedByRole: processorRole,
+        laboratory: request['laboratory'],
+      );
 
       _showSnackBar('Request updated successfully!', isError: false);
       await _loadAdviserRequestsOnly();
